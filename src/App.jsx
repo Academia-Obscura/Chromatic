@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 
 export default function App() {
   const [image, setImage] = useState(null);
@@ -16,22 +16,61 @@ export default function App() {
   const [generatedPalette, setGeneratedPalette] = useState([]);
   const [selectedMood, setSelectedMood] = useState(null);
   const [appBgColor, setAppBgColor] = useState(null);
-  const [textOverlay, setTextOverlay] = useState({
-    enabled: false,
-    text: 'Your Text Here',
-    type: 'header',
-    color: '#ffffff',
-    bgEnabled: false,
-    bgColor: '#000000',
-    bgOpacity: 80,
-    bgPadding: 20,
-    position: 'center',
-    fontSize: 48
-  });
+  const [imageAvgColor, setImageAvgColor] = useState(null);
+  const [activeLayerId, setActiveLayerId] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   
+  // Multiple text layers support
+  const [textLayers, setTextLayers] = useState([
+    {
+      id: 1,
+      enabled: true,
+      text: 'Your Headline',
+      type: 'header',
+      color: '#ffffff',
+      bgEnabled: false,
+      bgColor: '#000000',
+      bgOpacity: 80,
+      bgPaddingH: 20,
+      bgPaddingV: 12,
+      bgWidth: 'auto', // auto, full, custom
+      bgCustomWidth: 100,
+      position: { x: 50, y: 50 }, // percentage based
+      fontSize: 48,
+      fontWeight: '700',
+      textAlign: 'center',
+      letterSpacing: 0,
+      preset: 'bold'
+    }
+  ]);
+
+  // Ad format presets
+  const [adFormat, setAdFormat] = useState(null);
+  const adFormats = {
+    'ig-story': { name: 'IG Story', width: 1080, height: 1920, ratio: '9:16' },
+    'ig-feed': { name: 'IG Feed', width: 1080, height: 1080, ratio: '1:1' },
+    'ig-landscape': { name: 'IG Landscape', width: 1080, height: 566, ratio: '1.91:1' },
+    'fb-cover': { name: 'FB Cover', width: 820, height: 312, ratio: '2.63:1' },
+    'twitter': { name: 'Twitter/X', width: 1200, height: 675, ratio: '16:9' },
+    'pinterest': { name: 'Pinterest', width: 1000, height: 1500, ratio: '2:3' },
+    'linkedin': { name: 'LinkedIn', width: 1200, height: 627, ratio: '1.91:1' }
+  };
+
+  // Text style presets
+  const textPresets = {
+    bold: { name: 'Bold Impact', fontWeight: '700', letterSpacing: -1, fontSize: 48 },
+    clean: { name: 'Clean Modern', fontWeight: '500', letterSpacing: 0, fontSize: 42 },
+    elegant: { name: 'Elegant Serif', fontWeight: '400', letterSpacing: 2, fontSize: 40 },
+    minimal: { name: 'Minimal', fontWeight: '300', letterSpacing: 4, fontSize: 36 },
+    loud: { name: 'Loud & Proud', fontWeight: '900', letterSpacing: -2, fontSize: 56 }
+  };
+
   const canvasRef = useRef(null);
+  const exportCanvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const paletteFileInputRef = useRef(null);
+  const imageContainerRef = useRef(null);
 
   const themes = {
     modern: { name: 'Clean Modern', bg: '#ffffff', surface: '#f5f5f5', border: '#e0e0e0', text: '#171717', textMuted: '#737373', accent: '#171717', accentGlow: 'transparent', grid: false },
@@ -71,6 +110,7 @@ export default function App() {
     shades: { name: 'Shades', desc: 'Darker variations.', use: 'Text, shadows' }
   };
 
+  // Color utility functions
   const hexToRgb = (hex) => { const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex); return r ? { r: parseInt(r[1], 16), g: parseInt(r[2], 16), b: parseInt(r[3], 16) } : null; };
   const rgbToHex = (r, g, b) => '#' + [r, g, b].map(x => { const h = Math.round(Math.min(255, Math.max(0, x))).toString(16); return h.length === 1 ? '0' + h : h; }).join('');
   const hslToHex = (h, s, l) => { const rgb = hslToRgb(h, s, l); return rgbToHex(rgb.r, rgb.g, rgb.b); };
@@ -80,6 +120,42 @@ export default function App() {
   const getContrastRatio = (c1, c2) => { const rgb1 = hexToRgb(c1); const rgb2 = hexToRgb(c2); if (!rgb1 || !rgb2) return 1; const l1 = getLuminance(rgb1.r, rgb1.g, rgb1.b); const l2 = getLuminance(rgb2.r, rgb2.g, rgb2.b); return ((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)).toFixed(2); };
   const getWcagRating = (ratio) => { const t = themes[theme]; if (ratio >= 7) return { rating: 'AAA', color: t.accent, label: 'Excellent' }; if (ratio >= 4.5) return { rating: 'AA', color: '#ffaa00', label: 'Good' }; if (ratio >= 3) return { rating: 'AA Large', color: '#ff6600', label: 'Large text' }; return { rating: 'Fail', color: '#ff0066', label: 'Poor' }; };
   const getTextColor = (bgHex) => { const rgb = hexToRgb(bgHex); if (!rgb) return '#000000'; return getLuminance(rgb.r, rgb.g, rgb.b) > 0.179 ? '#000000' : '#ffffff'; };
+
+  // Get best text color for current image
+  const getBestTextColor = useCallback(() => {
+    if (!imageAvgColor) return '#ffffff';
+    return getTextColor(imageAvgColor);
+  }, [imageAvgColor]);
+
+  // Get best text/bg combo based on current palette
+  const getBestCombo = useCallback(() => {
+    const availableColors = [...currentColors, '#ffffff', '#000000'];
+    let bestCombo = { text: '#ffffff', bg: '#000000', ratio: 0 };
+    
+    availableColors.forEach(textColor => {
+      availableColors.forEach(bgColor => {
+        if (textColor !== bgColor) {
+          const ratio = parseFloat(getContrastRatio(textColor, bgColor));
+          if (ratio > bestCombo.ratio) {
+            bestCombo = { text: textColor, bg: bgColor, ratio };
+          }
+        }
+      });
+    });
+    
+    return bestCombo;
+  }, [colors, generatedPalette]);
+
+  // Get overlay color options based on selected harmony
+  const getOverlayColorOptions = useCallback(() => {
+    const baseColors = ['#ffffff', '#000000'];
+    const harmonyColors = harmonies[selectedHarmony] || [];
+    const paletteColors = currentColors.slice(0, 4);
+    
+    // Combine and dedupe
+    const allColors = [...new Set([...baseColors, ...harmonyColors, ...paletteColors])];
+    return allColors.slice(0, 10);
+  }, [harmonies, selectedHarmony, colors, generatedPalette]);
 
   const generateHarmonies = (hex) => {
     const rgb = hexToRgb(hex); if (!rgb) return {};
@@ -97,9 +173,24 @@ export default function App() {
 
   const extractColors = useCallback((imageData, k = 6) => {
     const pixels = [];
+    let totalR = 0, totalG = 0, totalB = 0, pixelCount = 0;
+    
     for (let i = 0; i < imageData.data.length; i += 4) {
-      if (imageData.data[i + 3] > 128) pixels.push([imageData.data[i], imageData.data[i + 1], imageData.data[i + 2]]);
+      if (imageData.data[i + 3] > 128) {
+        pixels.push([imageData.data[i], imageData.data[i + 1], imageData.data[i + 2]]);
+        totalR += imageData.data[i];
+        totalG += imageData.data[i + 1];
+        totalB += imageData.data[i + 2];
+        pixelCount++;
+      }
     }
+    
+    // Calculate average color
+    if (pixelCount > 0) {
+      const avgColor = rgbToHex(totalR / pixelCount, totalG / pixelCount, totalB / pixelCount);
+      setImageAvgColor(avgColor);
+    }
+    
     let centroids = Array.from({ length: k }, () => pixels[Math.floor(Math.random() * pixels.length)]);
     for (let iter = 0; iter < 15; iter++) {
       const clusters = Array.from({ length: k }, () => []);
@@ -148,6 +239,183 @@ export default function App() {
   };
   const copyToClipboard = async (text, label) => { try { await navigator.clipboard.writeText(text); setCopyNotification(`Copied ${label}`); setTimeout(() => setCopyNotification(''), 2000); } catch (err) { console.error('Failed to copy:', err); } };
 
+  // Text layer management
+  const addTextLayer = () => {
+    const newLayer = {
+      id: Date.now(),
+      enabled: true,
+      text: textLayers.length === 0 ? 'Your Headline' : textLayers.length === 1 ? 'Subheadline here' : 'Call to action →',
+      type: textLayers.length === 0 ? 'header' : textLayers.length === 1 ? 'subhead' : 'cta',
+      color: getBestTextColor(),
+      bgEnabled: false,
+      bgColor: '#000000',
+      bgOpacity: 80,
+      bgPaddingH: 20,
+      bgPaddingV: 12,
+      bgWidth: 'auto',
+      bgCustomWidth: 100,
+      position: { x: 50, y: 30 + (textLayers.length * 20) },
+      fontSize: textLayers.length === 0 ? 48 : textLayers.length === 1 ? 24 : 18,
+      fontWeight: textLayers.length === 0 ? '700' : '500',
+      textAlign: 'center',
+      letterSpacing: 0,
+      preset: 'clean'
+    };
+    setTextLayers([...textLayers, newLayer]);
+    setActiveLayerId(newLayer.id);
+  };
+
+  const updateTextLayer = (id, updates) => {
+    setTextLayers(textLayers.map(layer => 
+      layer.id === id ? { ...layer, ...updates } : layer
+    ));
+  };
+
+  const deleteTextLayer = (id) => {
+    setTextLayers(textLayers.filter(layer => layer.id !== id));
+    if (activeLayerId === id) {
+      setActiveLayerId(textLayers.length > 1 ? textLayers[0].id : null);
+    }
+  };
+
+  const applyPresetToLayer = (id, presetKey) => {
+    const preset = textPresets[presetKey];
+    updateTextLayer(id, {
+      fontWeight: preset.fontWeight,
+      letterSpacing: preset.letterSpacing,
+      fontSize: preset.fontSize,
+      preset: presetKey
+    });
+  };
+
+  const applyBestComboToLayer = (id) => {
+    const best = getBestCombo();
+    updateTextLayer(id, {
+      color: best.text,
+      bgEnabled: true,
+      bgColor: best.bg,
+      bgOpacity: 90
+    });
+  };
+
+  // Drag handlers for text positioning
+  const handleDragStart = (e, layerId) => {
+    if (!imageContainerRef.current) return;
+    e.preventDefault();
+    setIsDragging(true);
+    setActiveLayerId(layerId);
+    
+    const rect = imageContainerRef.current.getBoundingClientRect();
+    const layer = textLayers.find(l => l.id === layerId);
+    if (!layer) return;
+    
+    const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+    const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+    
+    setDragOffset({
+      x: clientX - (rect.left + (layer.position.x / 100) * rect.width),
+      y: clientY - (rect.top + (layer.position.y / 100) * rect.height)
+    });
+  };
+
+  const handleDragMove = useCallback((e) => {
+    if (!isDragging || !imageContainerRef.current || !activeLayerId) return;
+    
+    const rect = imageContainerRef.current.getBoundingClientRect();
+    const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+    const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+    
+    const x = Math.max(0, Math.min(100, ((clientX - rect.left - dragOffset.x) / rect.width) * 100));
+    const y = Math.max(0, Math.min(100, ((clientY - rect.top - dragOffset.y) / rect.height) * 100));
+    
+    updateTextLayer(activeLayerId, { position: { x, y } });
+  }, [isDragging, activeLayerId, dragOffset]);
+
+  const handleDragEnd = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleDragMove);
+      window.addEventListener('mouseup', handleDragEnd);
+      window.addEventListener('touchmove', handleDragMove);
+      window.addEventListener('touchend', handleDragEnd);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleDragMove);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleDragMove);
+      window.removeEventListener('touchend', handleDragEnd);
+    };
+  }, [isDragging, handleDragMove, handleDragEnd]);
+
+  // Export image with overlays
+  const exportWithOverlay = async (format = 'png') => {
+    if (!image) return;
+    
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      const canvas = exportCanvasRef.current;
+      const ctx = canvas.getContext('2d');
+      
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      
+      // Draw text layers
+      textLayers.filter(l => l.enabled).forEach(layer => {
+        const x = (layer.position.x / 100) * canvas.width;
+        const y = (layer.position.y / 100) * canvas.height;
+        const scaledFontSize = (layer.fontSize / 100) * Math.min(canvas.width, canvas.height) * 0.3;
+        
+        ctx.font = `${layer.fontWeight} ${scaledFontSize}px ${fonts.find(f => f.name === selectedFont)?.stack || 'sans-serif'}`;
+        ctx.textAlign = layer.textAlign;
+        ctx.textBaseline = 'middle';
+        
+        const metrics = ctx.measureText(layer.text);
+        const textWidth = metrics.width;
+        const textHeight = scaledFontSize;
+        
+        // Draw background if enabled
+        if (layer.bgEnabled) {
+          const paddingH = (layer.bgPaddingH / 100) * canvas.width * 0.1;
+          const paddingV = (layer.bgPaddingV / 100) * canvas.height * 0.1;
+          
+          ctx.fillStyle = layer.bgColor;
+          ctx.globalAlpha = layer.bgOpacity / 100;
+          
+          let bgWidth = textWidth + paddingH * 2;
+          if (layer.bgWidth === 'full') {
+            bgWidth = canvas.width;
+          } else if (layer.bgWidth === 'custom') {
+            bgWidth = (layer.bgCustomWidth / 100) * canvas.width;
+          }
+          
+          const bgX = layer.textAlign === 'center' ? x - bgWidth / 2 : layer.textAlign === 'right' ? x - bgWidth : x;
+          
+          ctx.fillRect(bgX, y - textHeight / 2 - paddingV, bgWidth, textHeight + paddingV * 2);
+          ctx.globalAlpha = 1;
+        }
+        
+        // Draw text
+        ctx.fillStyle = layer.color;
+        ctx.letterSpacing = `${layer.letterSpacing}px`;
+        ctx.fillText(layer.text, x, y);
+      });
+      
+      // Download
+      const link = document.createElement('a');
+      link.download = `chromatic-export.${format}`;
+      link.href = canvas.toDataURL(`image/${format}`, 0.95);
+      link.click();
+    };
+    
+    img.src = image;
+  };
+
   const generateExport = (format) => {
     const exp = colors.length > 0 ? colors : generatedPalette;
     if (exp.length === 0) return '';
@@ -165,7 +433,9 @@ export default function App() {
   const currentColors = colors.length > 0 ? colors : generatedPalette;
   const effectiveBg = appBgColor || currentTheme.bg;
   const effectiveText = appBgColor ? getTextColor(appBgColor) : currentTheme.text;
-  const effectiveTextMuted = appBgColor ? `${getTextColor(appBgColor)}99` : currentTheme.textMuted;
+  const effectiveTextMuted = appBgColor ? `${effectiveText}99` : currentTheme.textMuted;
+  const activeLayer = textLayers.find(l => l.id === activeLayerId);
+  const overlayColors = getOverlayColorOptions();
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: effectiveBg, color: effectiveText, fontFamily: '"Space Grotesk", -apple-system, sans-serif', transition: 'all 0.3s ease' }}>
@@ -178,6 +448,7 @@ export default function App() {
             <span style={{ fontSize: '16px', color: appBgColor ? appBgColor : '#000' }}>◈</span>
           </div>
           <h1 style={{ fontSize: '20px', fontWeight: '600', letterSpacing: '-0.02em', margin: 0, color: effectiveText }}>CHROMATIC</h1>
+          <span style={{ fontSize: '9px', padding: '2px 6px', background: `${currentTheme.accent}20`, borderRadius: '4px', color: currentTheme.accent, fontFamily: 'monospace' }}>V5</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {currentColors.length > 0 && (
@@ -218,20 +489,135 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '48px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: '48px' }}>
             <div>
               {image ? (
-                <div style={{ borderRadius: '12px', overflow: 'hidden', marginBottom: '24px', position: 'relative', border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}` }}>
-                  <div style={{ position: 'relative' }}>
+                <div style={{ marginBottom: '24px' }}>
+                  <div 
+                    ref={imageContainerRef}
+                    style={{ 
+                      borderRadius: '12px', 
+                      overflow: 'hidden', 
+                      position: 'relative', 
+                      border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`,
+                      cursor: isDragging ? 'grabbing' : 'default'
+                    }}
+                  >
                     <img src={image} alt="Uploaded" style={{ width: '100%', display: 'block' }} />
-                    {textOverlay.enabled && (
-                      <div style={{ position: 'absolute', top: textOverlay.position === 'top' ? '20px' : textOverlay.position === 'center' ? '50%' : 'auto', bottom: textOverlay.position === 'bottom' ? '20px' : 'auto', left: '50%', transform: textOverlay.position === 'center' ? 'translate(-50%, -50%)' : 'translateX(-50%)', textAlign: 'center', width: '90%' }}>
-                        {textOverlay.bgEnabled && <div style={{ position: 'absolute', top: `-${textOverlay.bgPadding}px`, left: `-${textOverlay.bgPadding}px`, right: `-${textOverlay.bgPadding}px`, bottom: `-${textOverlay.bgPadding}px`, background: textOverlay.bgColor, opacity: textOverlay.bgOpacity / 100, borderRadius: '8px' }} />}
-                        <span style={{ position: 'relative', color: textOverlay.color, fontSize: `${textOverlay.fontSize}px`, fontWeight: textOverlay.type === 'header' ? '700' : '400', fontFamily: fonts.find(f => f.name === selectedFont)?.stack, lineHeight: 1.2, textShadow: !textOverlay.bgEnabled ? '0 2px 4px rgba(0,0,0,0.5)' : 'none' }}>{textOverlay.text}</span>
+                    
+                    {/* Ad format overlay guide */}
+                    {adFormat && (
+                      <div style={{
+                        position: 'absolute',
+                        top: 0, left: 0, right: 0, bottom: 0,
+                        border: `2px dashed ${currentTheme.accent}`,
+                        pointerEvents: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        <span style={{ 
+                          background: 'rgba(0,0,0,0.7)', 
+                          color: '#fff', 
+                          padding: '4px 8px', 
+                          borderRadius: '4px', 
+                          fontSize: '10px', 
+                          fontFamily: 'monospace' 
+                        }}>
+                          {adFormats[adFormat].name} • {adFormats[adFormat].ratio}
+                        </span>
                       </div>
                     )}
+                    
+                    {/* Text layers */}
+                    {textLayers.filter(l => l.enabled).map(layer => (
+                      <div
+                        key={layer.id}
+                        onMouseDown={(e) => handleDragStart(e, layer.id)}
+                        onTouchStart={(e) => handleDragStart(e, layer.id)}
+                        onClick={() => setActiveLayerId(layer.id)}
+                        style={{
+                          position: 'absolute',
+                          left: `${layer.position.x}%`,
+                          top: `${layer.position.y}%`,
+                          transform: 'translate(-50%, -50%)',
+                          cursor: 'grab',
+                          userSelect: 'none',
+                          maxWidth: '90%'
+                        }}
+                      >
+                        {layer.bgEnabled && (
+                          <div style={{
+                            position: 'absolute',
+                            top: `-${layer.bgPaddingV}px`,
+                            left: layer.bgWidth === 'full' ? '-50vw' : `-${layer.bgPaddingH}px`,
+                            right: layer.bgWidth === 'full' ? '-50vw' : `-${layer.bgPaddingH}px`,
+                            bottom: `-${layer.bgPaddingV}px`,
+                            background: layer.bgColor,
+                            opacity: layer.bgOpacity / 100,
+                            borderRadius: '4px',
+                            width: layer.bgWidth === 'custom' ? `${layer.bgCustomWidth}%` : 'auto'
+                          }} />
+                        )}
+                        <span style={{
+                          position: 'relative',
+                          color: layer.color,
+                          fontSize: `${layer.fontSize}px`,
+                          fontWeight: layer.fontWeight,
+                          fontFamily: fonts.find(f => f.name === selectedFont)?.stack,
+                          lineHeight: 1.2,
+                          textShadow: !layer.bgEnabled ? '0 2px 8px rgba(0,0,0,0.5)' : 'none',
+                          letterSpacing: `${layer.letterSpacing}px`,
+                          textAlign: layer.textAlign,
+                          display: 'block',
+                          outline: activeLayerId === layer.id ? `2px solid ${currentTheme.accent}` : 'none',
+                          outlineOffset: '4px',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {layer.text}
+                        </span>
+                      </div>
+                    ))}
+                    
+                    <button onClick={() => { setImage(null); setColors([]); setSelectedColor(null); setHarmonies({}); setAppBgColor(null); setImageAvgColor(null); }} style={{ position: 'absolute', top: '12px', right: '12px', background: 'rgba(0,0,0,0.8)', border: `1px solid ${currentTheme.border}`, borderRadius: '6px', padding: '6px 12px', color: currentTheme.accent, cursor: 'pointer', fontSize: '11px', fontFamily: 'monospace' }}>REPLACE</button>
                   </div>
-                  <button onClick={() => { setImage(null); setColors([]); setSelectedColor(null); setHarmonies({}); setAppBgColor(null); }} style={{ position: 'absolute', top: '12px', right: '12px', background: 'rgba(0,0,0,0.8)', border: `1px solid ${currentTheme.border}`, borderRadius: '6px', padding: '6px 12px', color: currentTheme.accent, cursor: 'pointer', fontSize: '11px', fontFamily: 'monospace' }}>REPLACE</button>
+                  
+                  {/* Export buttons */}
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                    <button 
+                      onClick={() => exportWithOverlay('png')} 
+                      style={{ 
+                        flex: 1, 
+                        background: appBgColor ? effectiveText : currentTheme.accent, 
+                        border: 'none', 
+                        borderRadius: '6px', 
+                        padding: '10px', 
+                        color: appBgColor ? appBgColor : getTextColor(currentTheme.accent), 
+                        cursor: 'pointer', 
+                        fontSize: '11px', 
+                        fontFamily: 'monospace',
+                        fontWeight: '600'
+                      }}
+                    >
+                      EXPORT PNG
+                    </button>
+                    <button 
+                      onClick={() => exportWithOverlay('jpeg')} 
+                      style={{ 
+                        flex: 1, 
+                        background: 'transparent', 
+                        border: `1px solid ${appBgColor ? `${effectiveText}40` : currentTheme.border}`, 
+                        borderRadius: '6px', 
+                        padding: '10px', 
+                        color: effectiveTextMuted, 
+                        cursor: 'pointer', 
+                        fontSize: '11px', 
+                        fontFamily: 'monospace' 
+                      }}
+                    >
+                      EXPORT JPG
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div style={{ padding: '24px', background: appBgColor ? `${effectiveText}05` : currentTheme.surface, borderRadius: '12px', border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`, marginBottom: '24px' }}>
@@ -244,51 +630,346 @@ export default function App() {
                 </div>
               )}
 
+              {/* Ad Format Presets */}
               {image && (
                 <div style={{ padding: '16px', background: appBgColor ? `${effectiveText}05` : currentTheme.surface, borderRadius: '12px', border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`, marginBottom: '24px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.15em', color: effectiveTextMuted, fontFamily: 'monospace' }}>Text Overlay</span>
-                    <button onClick={() => setTextOverlay({ ...textOverlay, enabled: !textOverlay.enabled })} style={{ background: textOverlay.enabled ? (appBgColor ? effectiveText : currentTheme.accent) : 'transparent', border: `1px solid ${appBgColor ? `${effectiveText}40` : currentTheme.border}`, borderRadius: '4px', padding: '4px 8px', color: textOverlay.enabled ? (appBgColor ? appBgColor : getTextColor(currentTheme.accent)) : effectiveTextMuted, cursor: 'pointer', fontSize: '10px', fontFamily: 'monospace' }}>{textOverlay.enabled ? 'ON' : 'OFF'}</button>
+                    <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.15em', color: effectiveTextMuted, fontFamily: 'monospace' }}>Ad Format Guide</span>
+                    {adFormat && (
+                      <button onClick={() => setAdFormat(null)} style={{ background: 'transparent', border: 'none', color: effectiveTextMuted, cursor: 'pointer', fontSize: '10px', fontFamily: 'monospace' }}>CLEAR</button>
+                    )}
                   </div>
-                  {textOverlay.enabled && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <input type="text" value={textOverlay.text} onChange={(e) => setTextOverlay({ ...textOverlay, text: e.target.value })} placeholder="Enter text..." style={{ background: appBgColor ? `${effectiveText}10` : currentTheme.bg, border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`, borderRadius: '6px', padding: '8px 12px', color: effectiveText, fontSize: '12px' }} />
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                        <div>
-                          <label style={{ fontSize: '9px', color: effectiveTextMuted, display: 'block', marginBottom: '4px' }}>Type</label>
-                          <select value={textOverlay.type} onChange={(e) => setTextOverlay({ ...textOverlay, type: e.target.value, fontSize: e.target.value === 'header' ? 48 : 16 })} style={{ width: '100%', background: appBgColor ? `${effectiveText}10` : currentTheme.surface, border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`, borderRadius: '4px', padding: '6px', color: effectiveText, fontSize: '11px' }}>
-                            <option value="header">Header</option>
-                            <option value="body">Body</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '9px', color: effectiveTextMuted, display: 'block', marginBottom: '4px' }}>Position</label>
-                          <select value={textOverlay.position} onChange={(e) => setTextOverlay({ ...textOverlay, position: e.target.value })} style={{ width: '100%', background: appBgColor ? `${effectiveText}10` : currentTheme.surface, border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`, borderRadius: '4px', padding: '6px', color: effectiveText, fontSize: '11px' }}>
-                            <option value="top">Top</option>
-                            <option value="center">Center</option>
-                            <option value="bottom">Bottom</option>
-                          </select>
-                        </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+                    {Object.entries(adFormats).map(([key, format]) => (
+                      <button 
+                        key={key} 
+                        onClick={() => setAdFormat(adFormat === key ? null : key)}
+                        style={{ 
+                          background: adFormat === key ? `${currentTheme.accent}20` : 'transparent', 
+                          border: `1px solid ${adFormat === key ? currentTheme.accent : `${effectiveText}20`}`, 
+                          borderRadius: '4px', 
+                          padding: '6px 4px', 
+                          color: adFormat === key ? currentTheme.accent : effectiveTextMuted, 
+                          cursor: 'pointer', 
+                          fontSize: '8px', 
+                          fontFamily: 'monospace',
+                          textAlign: 'center'
+                        }}
+                      >
+                        {format.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Text Layers Panel */}
+              {image && (
+                <div style={{ padding: '16px', background: appBgColor ? `${effectiveText}05` : currentTheme.surface, borderRadius: '12px', border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`, marginBottom: '24px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.15em', color: effectiveTextMuted, fontFamily: 'monospace' }}>Text Layers</span>
+                    <button 
+                      onClick={addTextLayer} 
+                      style={{ 
+                        background: appBgColor ? effectiveText : currentTheme.accent, 
+                        border: 'none', 
+                        borderRadius: '4px', 
+                        padding: '4px 8px', 
+                        color: appBgColor ? appBgColor : getTextColor(currentTheme.accent), 
+                        cursor: 'pointer', 
+                        fontSize: '10px', 
+                        fontFamily: 'monospace' 
+                      }}
+                    >
+                      + ADD
+                    </button>
+                  </div>
+                  
+                  {/* Layer list */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }}>
+                    {textLayers.map((layer, index) => (
+                      <div 
+                        key={layer.id}
+                        onClick={() => setActiveLayerId(layer.id)}
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '8px', 
+                          padding: '8px', 
+                          background: activeLayerId === layer.id ? `${currentTheme.accent}15` : 'transparent',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          border: `1px solid ${activeLayerId === layer.id ? currentTheme.accent : 'transparent'}`
+                        }}
+                      >
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); updateTextLayer(layer.id, { enabled: !layer.enabled }); }}
+                          style={{ 
+                            width: '16px', 
+                            height: '16px', 
+                            borderRadius: '3px', 
+                            border: `1px solid ${effectiveText}40`, 
+                            background: layer.enabled ? currentTheme.accent : 'transparent',
+                            cursor: 'pointer',
+                            padding: 0,
+                            fontSize: '8px',
+                            color: layer.enabled ? getTextColor(currentTheme.accent) : 'transparent'
+                          }}
+                        >
+                          ✓
+                        </button>
+                        <span style={{ flex: 1, fontSize: '11px', color: effectiveText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {layer.text || `Layer ${index + 1}`}
+                        </span>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); deleteTextLayer(layer.id); }}
+                          style={{ 
+                            background: 'transparent', 
+                            border: 'none', 
+                            color: effectiveTextMuted, 
+                            cursor: 'pointer', 
+                            fontSize: '12px',
+                            padding: '2px 4px'
+                          }}
+                        >
+                          ×
+                        </button>
                       </div>
+                    ))}
+                  </div>
+                  
+                  {/* Active layer controls */}
+                  {activeLayer && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '12px', borderTop: `1px solid ${effectiveText}10` }}>
+                      <input 
+                        type="text" 
+                        value={activeLayer.text} 
+                        onChange={(e) => updateTextLayer(activeLayer.id, { text: e.target.value })} 
+                        placeholder="Enter text..." 
+                        style={{ 
+                          background: appBgColor ? `${effectiveText}10` : currentTheme.bg, 
+                          border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`, 
+                          borderRadius: '6px', 
+                          padding: '8px 12px', 
+                          color: effectiveText, 
+                          fontSize: '12px' 
+                        }} 
+                      />
+                      
+                      {/* Style presets */}
                       <div>
-                        <label style={{ fontSize: '9px', color: effectiveTextMuted, display: 'block', marginBottom: '4px' }}>Text Color</label>
+                        <label style={{ fontSize: '9px', color: effectiveTextMuted, display: 'block', marginBottom: '6px' }}>Style Preset</label>
                         <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                          {['#ffffff', '#000000', ...currentColors].map((color, i) => <button key={i} onClick={() => setTextOverlay({ ...textOverlay, color })} style={{ width: '24px', height: '24px', borderRadius: '4px', border: `2px solid ${textOverlay.color === color ? currentTheme.accent : 'transparent'}`, background: color, cursor: 'pointer', padding: 0 }} />)}
+                          {Object.entries(textPresets).map(([key, preset]) => (
+                            <button 
+                              key={key}
+                              onClick={() => applyPresetToLayer(activeLayer.id, key)}
+                              style={{ 
+                                background: activeLayer.preset === key ? `${currentTheme.accent}20` : 'transparent', 
+                                border: `1px solid ${activeLayer.preset === key ? currentTheme.accent : `${effectiveText}20`}`, 
+                                borderRadius: '4px', 
+                                padding: '4px 8px', 
+                                color: activeLayer.preset === key ? currentTheme.accent : effectiveTextMuted, 
+                                cursor: 'pointer', 
+                                fontSize: '9px', 
+                                fontFamily: 'monospace' 
+                              }}
+                            >
+                              {preset.name}
+                            </button>
+                          ))}
                         </div>
                       </div>
+                      
+                      {/* Text color with Best option */}
                       <div>
-                        <label style={{ fontSize: '9px', color: effectiveTextMuted, display: 'block', marginBottom: '4px' }}>Size: {textOverlay.fontSize}px</label>
-                        <input type="range" min="12" max="72" value={textOverlay.fontSize} onChange={(e) => setTextOverlay({ ...textOverlay, fontSize: parseInt(e.target.value) })} style={{ width: '100%', accentColor: currentTheme.accent }} />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <label style={{ fontSize: '9px', color: effectiveTextMuted }}>Text Color</label>
+                          <button 
+                            onClick={() => applyBestComboToLayer(activeLayer.id)}
+                            style={{ 
+                              background: `${currentTheme.accent}20`, 
+                              border: `1px solid ${currentTheme.accent}`, 
+                              borderRadius: '4px', 
+                              padding: '2px 6px', 
+                              color: currentTheme.accent, 
+                              cursor: 'pointer', 
+                              fontSize: '8px', 
+                              fontFamily: 'monospace' 
+                            }}
+                          >
+                            ★ BEST
+                          </button>
+                        </div>
+                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                          {overlayColors.map((color, i) => {
+                            const contrastRatio = imageAvgColor ? getContrastRatio(color, imageAvgColor) : 21;
+                            const { rating } = getWcagRating(contrastRatio);
+                            return (
+                              <div key={i} style={{ position: 'relative' }}>
+                                <button 
+                                  onClick={() => updateTextLayer(activeLayer.id, { color })} 
+                                  style={{ 
+                                    width: '24px', 
+                                    height: '24px', 
+                                    borderRadius: '4px', 
+                                    border: `2px solid ${activeLayer.color === color ? currentTheme.accent : 'transparent'}`, 
+                                    background: color, 
+                                    cursor: 'pointer', 
+                                    padding: 0 
+                                  }} 
+                                />
+                                {rating === 'Fail' && (
+                                  <div style={{ 
+                                    position: 'absolute', 
+                                    top: '-2px', 
+                                    right: '-2px', 
+                                    width: '8px', 
+                                    height: '8px', 
+                                    background: '#ff0066', 
+                                    borderRadius: '50%' 
+                                  }} />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '8px', borderTop: `1px solid ${appBgColor ? `${effectiveText}10` : currentTheme.border}` }}>
-                        <button onClick={() => setTextOverlay({ ...textOverlay, bgEnabled: !textOverlay.bgEnabled })} style={{ background: textOverlay.bgEnabled ? (appBgColor ? effectiveText : currentTheme.accent) : 'transparent', border: `1px solid ${appBgColor ? `${effectiveText}40` : currentTheme.border}`, borderRadius: '4px', padding: '4px 8px', color: textOverlay.bgEnabled ? (appBgColor ? appBgColor : getTextColor(currentTheme.accent)) : effectiveTextMuted, cursor: 'pointer', fontSize: '10px', fontFamily: 'monospace' }}>BG BOX</button>
-                        {textOverlay.bgEnabled && (
-                          <>
+                      
+                      {/* Size slider */}
+                      <div>
+                        <label style={{ fontSize: '9px', color: effectiveTextMuted, display: 'block', marginBottom: '4px' }}>Size: {activeLayer.fontSize}px</label>
+                        <input 
+                          type="range" 
+                          min="12" 
+                          max="96" 
+                          value={activeLayer.fontSize} 
+                          onChange={(e) => updateTextLayer(activeLayer.id, { fontSize: parseInt(e.target.value) })} 
+                          style={{ width: '100%', accentColor: currentTheme.accent }} 
+                        />
+                      </div>
+                      
+                      {/* Background controls */}
+                      <div style={{ paddingTop: '8px', borderTop: `1px solid ${effectiveText}10` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                          <button 
+                            onClick={() => updateTextLayer(activeLayer.id, { bgEnabled: !activeLayer.bgEnabled })} 
+                            style={{ 
+                              background: activeLayer.bgEnabled ? currentTheme.accent : 'transparent', 
+                              border: `1px solid ${effectiveText}40`, 
+                              borderRadius: '4px', 
+                              padding: '4px 8px', 
+                              color: activeLayer.bgEnabled ? getTextColor(currentTheme.accent) : effectiveTextMuted, 
+                              cursor: 'pointer', 
+                              fontSize: '10px', 
+                              fontFamily: 'monospace' 
+                            }}
+                          >
+                            BG BOX
+                          </button>
+                          {activeLayer.bgEnabled && (
                             <div style={{ display: 'flex', gap: '2px' }}>
-                              {['#000000', '#ffffff', ...currentColors.slice(0, 3)].map((color, i) => <button key={i} onClick={() => setTextOverlay({ ...textOverlay, bgColor: color })} style={{ width: '20px', height: '20px', borderRadius: '3px', border: `1px solid ${textOverlay.bgColor === color ? currentTheme.accent : 'transparent'}`, background: color, cursor: 'pointer', padding: 0 }} />)}
+                              {['#000000', '#ffffff', ...currentColors.slice(0, 4)].map((color, i) => (
+                                <button 
+                                  key={i} 
+                                  onClick={() => updateTextLayer(activeLayer.id, { bgColor: color })} 
+                                  style={{ 
+                                    width: '20px', 
+                                    height: '20px', 
+                                    borderRadius: '3px', 
+                                    border: `1px solid ${activeLayer.bgColor === color ? currentTheme.accent : 'transparent'}`, 
+                                    background: color, 
+                                    cursor: 'pointer', 
+                                    padding: 0 
+                                  }} 
+                                />
+                              ))}
                             </div>
-                            <input type="range" min="20" max="100" value={textOverlay.bgOpacity} onChange={(e) => setTextOverlay({ ...textOverlay, bgOpacity: parseInt(e.target.value) })} style={{ width: '60px', accentColor: currentTheme.accent }} title={`Opacity: ${textOverlay.bgOpacity}%`} />
-                          </>
+                          )}
+                        </div>
+                        
+                        {activeLayer.bgEnabled && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {/* Width mode */}
+                            <div>
+                              <label style={{ fontSize: '9px', color: effectiveTextMuted, display: 'block', marginBottom: '4px' }}>Width</label>
+                              <div style={{ display: 'flex', gap: '4px' }}>
+                                {['auto', 'full', 'custom'].map(mode => (
+                                  <button 
+                                    key={mode}
+                                    onClick={() => updateTextLayer(activeLayer.id, { bgWidth: mode })}
+                                    style={{ 
+                                      flex: 1,
+                                      background: activeLayer.bgWidth === mode ? `${currentTheme.accent}20` : 'transparent', 
+                                      border: `1px solid ${activeLayer.bgWidth === mode ? currentTheme.accent : `${effectiveText}20`}`, 
+                                      borderRadius: '4px', 
+                                      padding: '4px', 
+                                      color: activeLayer.bgWidth === mode ? currentTheme.accent : effectiveTextMuted, 
+                                      cursor: 'pointer', 
+                                      fontSize: '9px', 
+                                      fontFamily: 'monospace',
+                                      textTransform: 'capitalize'
+                                    }}
+                                  >
+                                    {mode}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            
+                            {activeLayer.bgWidth === 'custom' && (
+                              <div>
+                                <label style={{ fontSize: '9px', color: effectiveTextMuted, display: 'block', marginBottom: '4px' }}>Custom Width: {activeLayer.bgCustomWidth}%</label>
+                                <input 
+                                  type="range" 
+                                  min="50" 
+                                  max="200" 
+                                  value={activeLayer.bgCustomWidth} 
+                                  onChange={(e) => updateTextLayer(activeLayer.id, { bgCustomWidth: parseInt(e.target.value) })} 
+                                  style={{ width: '100%', accentColor: currentTheme.accent }} 
+                                />
+                              </div>
+                            )}
+                            
+                            {/* Padding controls */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                              <div>
+                                <label style={{ fontSize: '9px', color: effectiveTextMuted, display: 'block', marginBottom: '4px' }}>H Padding: {activeLayer.bgPaddingH}px</label>
+                                <input 
+                                  type="range" 
+                                  min="0" 
+                                  max="60" 
+                                  value={activeLayer.bgPaddingH} 
+                                  onChange={(e) => updateTextLayer(activeLayer.id, { bgPaddingH: parseInt(e.target.value) })} 
+                                  style={{ width: '100%', accentColor: currentTheme.accent }} 
+                                />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '9px', color: effectiveTextMuted, display: 'block', marginBottom: '4px' }}>V Padding: {activeLayer.bgPaddingV}px</label>
+                                <input 
+                                  type="range" 
+                                  min="0" 
+                                  max="40" 
+                                  value={activeLayer.bgPaddingV} 
+                                  onChange={(e) => updateTextLayer(activeLayer.id, { bgPaddingV: parseInt(e.target.value) })} 
+                                  style={{ width: '100%', accentColor: currentTheme.accent }} 
+                                />
+                              </div>
+                            </div>
+                            
+                            {/* Opacity */}
+                            <div>
+                              <label style={{ fontSize: '9px', color: effectiveTextMuted, display: 'block', marginBottom: '4px' }}>Opacity: {activeLayer.bgOpacity}%</label>
+                              <input 
+                                type="range" 
+                                min="20" 
+                                max="100" 
+                                value={activeLayer.bgOpacity} 
+                                onChange={(e) => updateTextLayer(activeLayer.id, { bgOpacity: parseInt(e.target.value) })} 
+                                style={{ width: '100%', accentColor: currentTheme.accent }} 
+                              />
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -321,13 +1002,13 @@ export default function App() {
             <div>
               <div style={{ display: 'flex', gap: '4px', marginBottom: '32px', borderBottom: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`, paddingBottom: '16px' }}>
                 {['palette', 'contrast', 'typography', 'export'].map(tab => (
-                  <button key={tab} onClick={() => setActiveTab(tab)} style={{ background: activeTab === tab ? `${appBgColor ? effectiveText : currentTheme.accent}15` : 'transparent', border: activeTab === tab ? `1px solid ${appBgColor ? `${effectiveText}30` : currentTheme.border}` : '1px solid transparent', padding: '8px 16px', borderRadius: '6px', color: activeTab === tab ? (appBgColor ? effectiveText : currentTheme.accent) : effectiveTextMuted, cursor: 'pointer', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'monospace' }}>{tab}</button>
+                  <button key={tab} onClick={() => setActiveTab(tab)} style={{ background: activeTab === tab ? `${appBgColor ? effectiveText : currentTheme.accent}15` : 'transparent', border: `1px solid ${activeTab === tab ? (appBgColor ? effectiveText : currentTheme.accent) : 'transparent'}`, padding: '8px 16px', borderRadius: '6px', color: activeTab === tab ? (appBgColor ? effectiveText : currentTheme.accent) : effectiveTextMuted, cursor: 'pointer', fontSize: '12px', textTransform: 'capitalize', fontFamily: 'monospace' }}>{tab}</button>
                 ))}
               </div>
 
               {activeTab === 'palette' && selectedColor && (
                 <div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '24px', marginBottom: '40px', padding: '24px', background: appBgColor ? `${effectiveText}05` : currentTheme.surface, borderRadius: '12px', border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}` }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '24px', marginBottom: '32px' }}>
                     <div onClick={() => copyToClipboard(selectedColor, selectedColor)} style={{ aspectRatio: '1', backgroundColor: selectedColor, borderRadius: '12px', cursor: 'pointer' }} />
                     <div>
                       {[{ label: 'HEX', value: selectedColor.toUpperCase(), copy: selectedColor }, { label: 'RGB', value: (() => { const rgb = hexToRgb(selectedColor); return rgb ? `${rgb.r}, ${rgb.g}, ${rgb.b}` : ''; })(), copy: (() => { const rgb = hexToRgb(selectedColor); return rgb ? `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})` : ''; })() }, { label: 'HSL', value: (() => { const rgb = hexToRgb(selectedColor); if (!rgb) return ''; const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b); return `${hsl.h}°, ${hsl.s}%, ${hsl.l}%`; })(), copy: (() => { const rgb = hexToRgb(selectedColor); if (!rgb) return ''; const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b); return `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`; })() }].map(({ label, value, copy }) => (
@@ -473,7 +1154,8 @@ export default function App() {
       <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
       <input ref={paletteFileInputRef} type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
       <canvas ref={canvasRef} style={{ display: 'none' }} />
-      <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&family=Crimson+Pro:wght@400;600;700&display=swap" rel="stylesheet" />
+      <canvas ref={exportCanvasRef} style={{ display: 'none' }} />
+      <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&family=Crimson+Pro:wght@300;400;600;700&display=swap" rel="stylesheet" />
       <style>{`* { box-sizing: border-box; } body { margin: 0; } ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: ${appBgColor ? `${effectiveText}05` : currentTheme.surface}; } ::-webkit-scrollbar-thumb { background: ${appBgColor ? `${effectiveText}20` : currentTheme.border}; border-radius: 3px; }`}</style>
     </div>
   );
