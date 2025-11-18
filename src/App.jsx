@@ -7,8 +7,59 @@ export default function App() {
   const [harmonies, setHarmonies] = useState({});
   const [activeTab, setActiveTab] = useState('palette');
   const [copyNotification, setCopyNotification] = useState('');
+  const [colorCount, setColorCount] = useState(6);
+  const [selectedFont, setSelectedFont] = useState('Inter');
+  const [previewBg, setPreviewBg] = useState('light');
+  const [fontSize, setFontSize] = useState({ h1: 48, h2: 32, body: 16 });
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  const fonts = [
+    { name: 'Inter', stack: 'Inter, -apple-system, sans-serif' },
+    { name: 'Playfair Display', stack: '"Playfair Display", Georgia, serif' },
+    { name: 'Space Grotesk', stack: '"Space Grotesk", sans-serif' },
+    { name: 'JetBrains Mono', stack: '"JetBrains Mono", monospace' },
+    { name: 'Outfit', stack: 'Outfit, sans-serif' },
+    { name: 'Crimson Pro', stack: '"Crimson Pro", serif' },
+  ];
+
+  const harmonyDescriptions = {
+    complementary: {
+      name: 'Complementary',
+      desc: 'High contrast, vibrant look. Best for CTAs, headlines, or creating visual tension.',
+      use: 'Hero sections, buttons, accent elements'
+    },
+    triadic: {
+      name: 'Triadic',
+      desc: 'Balanced and vibrant. Offers variety while maintaining harmony.',
+      use: 'Illustrations, infographics, playful brands'
+    },
+    splitComplementary: {
+      name: 'Split Complementary',
+      desc: 'Strong contrast with less tension. Safer than complementary.',
+      use: 'Web design, presentations, balanced layouts'
+    },
+    analogous: {
+      name: 'Analogous',
+      desc: 'Harmonious and serene. Colors sit next to each other on the wheel.',
+      use: 'Backgrounds, gradients, cohesive themes'
+    },
+    tetradic: {
+      name: 'Tetradic',
+      desc: 'Rich and complex. Four colors forming a rectangle on the wheel.',
+      use: 'Complex designs, dashboards, data visualization'
+    },
+    tints: {
+      name: 'Tints',
+      desc: 'Lighter variations. Add white to create softer versions.',
+      use: 'Backgrounds, hover states, subtle hierarchy'
+    },
+    shades: {
+      name: 'Shades',
+      desc: 'Darker variations. Add black for depth and grounding.',
+      use: 'Text, shadows, footer elements'
+    }
+  };
 
   // Color conversion utilities
   const hexToRgb = (hex) => {
@@ -73,7 +124,6 @@ export default function App() {
     return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
   };
 
-  // Calculate relative luminance for WCAG contrast
   const getLuminance = (r, g, b) => {
     const [rs, gs, bs] = [r, g, b].map(c => {
       c = c / 255;
@@ -93,13 +143,12 @@ export default function App() {
   };
 
   const getWcagRating = (ratio) => {
-    if (ratio >= 7) return { rating: 'AAA', color: '#10b981' };
-    if (ratio >= 4.5) return { rating: 'AA', color: '#f59e0b' };
-    if (ratio >= 3) return { rating: 'AA Large', color: '#f97316' };
-    return { rating: 'Fail', color: '#ef4444' };
+    if (ratio >= 7) return { rating: 'AAA', color: '#00ff88', label: 'Excellent' };
+    if (ratio >= 4.5) return { rating: 'AA', color: '#ffaa00', label: 'Good' };
+    if (ratio >= 3) return { rating: 'AA Large', color: '#ff6600', label: 'Large text only' };
+    return { rating: 'Fail', color: '#ff0066', label: 'Poor contrast' };
   };
 
-  // Generate color harmonies
   const generateHarmonies = (hex) => {
     const rgb = hexToRgb(hex);
     const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
@@ -141,7 +190,6 @@ export default function App() {
     return harmonies;
   };
 
-  // Extract dominant colors using k-means clustering
   const extractColors = useCallback((imageData, k = 6) => {
     const pixels = [];
     for (let i = 0; i < imageData.data.length; i += 4) {
@@ -150,9 +198,12 @@ export default function App() {
       }
     }
 
-    // Simple k-means clustering
-    let centroids = pixels.slice(0, k);
-    for (let iter = 0; iter < 10; iter++) {
+    let centroids = [];
+    for (let i = 0; i < k; i++) {
+      centroids.push(pixels[Math.floor(Math.random() * pixels.length)]);
+    }
+
+    for (let iter = 0; iter < 15; iter++) {
       const clusters = Array.from({ length: k }, () => []);
       
       pixels.forEach(pixel => {
@@ -185,35 +236,45 @@ export default function App() {
     return centroids.map(c => rgbToHex(c[0], c[1], c[2]));
   }, []);
 
+  const processImage = useCallback((imgSrc, count) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      const scale = Math.min(300 / img.width, 300 / img.height);
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const extractedColors = extractColors(imageData, count);
+      setColors(extractedColors);
+      
+      if (extractedColors.length > 0) {
+        setSelectedColor(extractedColors[0]);
+        setHarmonies(generateHarmonies(extractedColors[0]));
+      }
+    };
+    img.src = imgSrc;
+  }, [extractColors]);
+
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        setImage(event.target.result);
-        
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-        const scale = Math.min(300 / img.width, 300 / img.height);
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const extractedColors = extractColors(imageData);
-        setColors(extractedColors);
-        
-        if (extractedColors.length > 0) {
-          setSelectedColor(extractedColors[0]);
-          setHarmonies(generateHarmonies(extractedColors[0]));
-        }
-      };
-      img.src = event.target.result;
+      setImage(event.target.result);
+      processImage(event.target.result, colorCount);
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleColorCountChange = (count) => {
+    setColorCount(count);
+    if (image) {
+      processImage(image, count);
+    }
   };
 
   const handleColorSelect = (color) => {
@@ -238,11 +299,16 @@ export default function App() {
       case 'css':
         return `:root {\n${colors.map((c, i) => `  --color-${i + 1}: ${c};`).join('\n')}\n}`;
       case 'tailwind':
-        return `colors: {\n${colors.map((c, i) => `  'custom-${i + 1}': '${c}',`).join('\n')}\n}`;
+        return `module.exports = {\n  theme: {\n    extend: {\n      colors: {\n${colors.map((c, i) => `        'brand-${i + 1}': '${c}',`).join('\n')}\n      }\n    }\n  }\n}`;
       case 'scss':
         return colors.map((c, i) => `$color-${i + 1}: ${c};`).join('\n');
       case 'json':
         return JSON.stringify(colors.reduce((acc, c, i) => ({ ...acc, [`color-${i + 1}`]: c }), {}), null, 2);
+      case 'figma':
+        return colors.map((c, i) => {
+          const rgb = hexToRgb(c);
+          return `Color ${i + 1}: ${c}\nRGB: ${rgb.r}, ${rgb.g}, ${rgb.b}`;
+        }).join('\n\n');
       default:
         return colors.join(', ');
     }
@@ -257,27 +323,70 @@ export default function App() {
   return (
     <div style={{ 
       minHeight: '100vh', 
-      backgroundColor: '#0a0a0a', 
+      backgroundColor: '#0a0a0f', 
       color: '#fafafa',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      fontFamily: '"Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif'
     }}>
+      {/* Y2K Grid Background */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundImage: `
+          linear-gradient(rgba(0, 255, 136, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 255, 136, 0.03) 1px, transparent 1px)
+        `,
+        backgroundSize: '50px 50px',
+        pointerEvents: 'none',
+        zIndex: 0
+      }} />
+
       {/* Header */}
       <header style={{
-        borderBottom: '1px solid #262626',
-        padding: '24px 48px',
+        borderBottom: '1px solid rgba(0, 255, 136, 0.2)',
+        padding: '20px 48px',
         display: 'flex',
         justifyContent: 'space-between',
-        alignItems: 'center'
+        alignItems: 'center',
+        position: 'relative',
+        zIndex: 1,
+        backdropFilter: 'blur(10px)',
+        background: 'rgba(10, 10, 15, 0.8)'
       }}>
-        <h1 style={{ 
-          fontSize: '20px', 
-          fontWeight: '500', 
-          letterSpacing: '-0.02em',
-          margin: 0
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            width: '32px',
+            height: '32px',
+            borderRadius: '8px',
+            background: 'linear-gradient(135deg, #00ff88, #00aaff)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}>
+            <span style={{ fontSize: '16px' }}>◈</span>
+          </div>
+          <h1 style={{ 
+            fontSize: '20px', 
+            fontWeight: '600', 
+            letterSpacing: '-0.02em',
+            margin: 0,
+            background: 'linear-gradient(135deg, #00ff88, #00aaff)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent'
+          }}>
+            CHROMATIC
+          </h1>
+        </div>
+        <span style={{ 
+          fontSize: '11px', 
+          color: '#00ff88',
+          fontFamily: 'monospace',
+          letterSpacing: '0.15em'
         }}>
-          Chromatic
-        </h1>
-        <span style={{ fontSize: '12px', color: '#737373' }}>Color Intelligence</span>
+          COLOR.INTELLIGENCE.v2
+        </span>
       </header>
 
       {/* Copy notification */}
@@ -286,50 +395,72 @@ export default function App() {
           position: 'fixed',
           top: '20px',
           right: '20px',
-          background: '#262626',
+          background: 'rgba(0, 255, 136, 0.1)',
+          border: '1px solid #00ff88',
           padding: '12px 20px',
           borderRadius: '8px',
           fontSize: '13px',
           zIndex: 1000,
-          animation: 'fadeIn 0.2s ease'
+          color: '#00ff88',
+          fontFamily: 'monospace'
         }}>
           {copyNotification}
         </div>
       )}
 
-      <main style={{ padding: '48px', maxWidth: '1400px', margin: '0 auto' }}>
+      <main style={{ padding: '48px', maxWidth: '1600px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
         {/* Upload Section */}
         {!image ? (
           <div 
             onClick={() => fileInputRef.current?.click()}
             style={{
-              border: '2px dashed #262626',
+              border: '2px dashed rgba(0, 255, 136, 0.3)',
               borderRadius: '16px',
-              padding: '80px',
+              padding: '100px',
               textAlign: 'center',
               cursor: 'pointer',
-              transition: 'all 0.2s ease'
+              transition: 'all 0.3s ease',
+              background: 'rgba(0, 255, 136, 0.02)'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.borderColor = '#404040'}
-            onMouseLeave={(e) => e.currentTarget.style.borderColor = '#262626'}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = '#00ff88';
+              e.currentTarget.style.background = 'rgba(0, 255, 136, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(0, 255, 136, 0.3)';
+              e.currentTarget.style.background = 'rgba(0, 255, 136, 0.02)';
+            }}
           >
-            <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}>↑</div>
-            <p style={{ fontSize: '16px', color: '#a3a3a3', marginBottom: '8px' }}>
+            <div style={{ 
+              fontSize: '64px', 
+              marginBottom: '24px',
+              filter: 'drop-shadow(0 0 20px rgba(0, 255, 136, 0.5))'
+            }}>
+              ↑
+            </div>
+            <p style={{ 
+              fontSize: '18px', 
+              color: '#fafafa', 
+              marginBottom: '8px',
+              fontWeight: '500'
+            }}>
               Drop an image or click to upload
             </p>
-            <p style={{ fontSize: '12px', color: '#525252' }}>
-              PNG, JPG, WebP up to 10MB
+            <p style={{ fontSize: '12px', color: '#666', fontFamily: 'monospace' }}>
+              PNG • JPG • WEBP • UP TO 10MB
             </p>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '48px' }}>
-            {/* Left Column - Image & Palette */}
+          <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '48px' }}>
+            {/* Left Column */}
             <div>
+              {/* Image Preview */}
               <div style={{ 
                 borderRadius: '12px', 
                 overflow: 'hidden', 
                 marginBottom: '24px',
-                position: 'relative'
+                position: 'relative',
+                border: '1px solid rgba(0, 255, 136, 0.2)'
               }}>
                 <img 
                   src={image} 
@@ -347,27 +478,55 @@ export default function App() {
                     position: 'absolute',
                     top: '12px',
                     right: '12px',
-                    background: 'rgba(0,0,0,0.7)',
-                    border: 'none',
+                    background: 'rgba(0, 0, 0, 0.8)',
+                    border: '1px solid rgba(0, 255, 136, 0.3)',
                     borderRadius: '6px',
                     padding: '6px 12px',
-                    color: '#fff',
+                    color: '#00ff88',
                     cursor: 'pointer',
-                    fontSize: '12px'
+                    fontSize: '11px',
+                    fontFamily: 'monospace'
                   }}
                 >
-                  Replace
+                  REPLACE
                 </button>
+              </div>
+
+              {/* Color Count Control */}
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ 
+                  fontSize: '10px', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.15em',
+                  color: '#666',
+                  display: 'block',
+                  marginBottom: '8px',
+                  fontFamily: 'monospace'
+                }}>
+                  Extract Colors: {colorCount}
+                </label>
+                <input
+                  type="range"
+                  min="3"
+                  max="12"
+                  value={colorCount}
+                  onChange={(e) => handleColorCountChange(parseInt(e.target.value))}
+                  style={{
+                    width: '100%',
+                    accentColor: '#00ff88'
+                  }}
+                />
               </div>
 
               {/* Extracted Palette */}
               <div>
                 <h3 style={{ 
-                  fontSize: '11px', 
+                  fontSize: '10px', 
                   textTransform: 'uppercase', 
-                  letterSpacing: '0.1em',
-                  color: '#737373',
-                  marginBottom: '12px'
+                  letterSpacing: '0.15em',
+                  color: '#666',
+                  marginBottom: '12px',
+                  fontFamily: 'monospace'
                 }}>
                   Extracted Palette
                 </h3>
@@ -381,19 +540,24 @@ export default function App() {
                         backgroundColor: color,
                         borderRadius: '8px',
                         cursor: 'pointer',
-                        border: selectedColor === color ? '2px solid #fff' : '2px solid transparent',
+                        border: selectedColor === color 
+                          ? '2px solid #00ff88' 
+                          : '2px solid transparent',
                         transition: 'all 0.2s ease',
-                        position: 'relative'
+                        position: 'relative',
+                        boxShadow: selectedColor === color 
+                          ? '0 0 20px rgba(0, 255, 136, 0.3)' 
+                          : 'none'
                       }}
                     >
                       <span style={{
                         position: 'absolute',
                         bottom: '4px',
                         left: '4px',
-                        fontSize: '9px',
+                        fontSize: '8px',
                         fontFamily: 'monospace',
                         color: getTextColor(color),
-                        opacity: 0.8
+                        opacity: 0.9
                       }}>
                         {color.toUpperCase()}
                       </span>
@@ -403,14 +567,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right Column - Analysis */}
+            {/* Right Column */}
             <div>
               {/* Tabs */}
               <div style={{ 
                 display: 'flex', 
                 gap: '4px', 
                 marginBottom: '32px',
-                borderBottom: '1px solid #262626',
+                borderBottom: '1px solid rgba(0, 255, 136, 0.2)',
                 paddingBottom: '16px'
               }}>
                 {['palette', 'contrast', 'typography', 'export'].map(tab => (
@@ -418,15 +582,21 @@ export default function App() {
                     key={tab}
                     onClick={() => setActiveTab(tab)}
                     style={{
-                      background: activeTab === tab ? '#262626' : 'transparent',
-                      border: 'none',
+                      background: activeTab === tab 
+                        ? 'rgba(0, 255, 136, 0.1)' 
+                        : 'transparent',
+                      border: activeTab === tab 
+                        ? '1px solid rgba(0, 255, 136, 0.3)' 
+                        : '1px solid transparent',
                       padding: '8px 16px',
                       borderRadius: '6px',
-                      color: activeTab === tab ? '#fff' : '#737373',
+                      color: activeTab === tab ? '#00ff88' : '#666',
                       cursor: 'pointer',
-                      fontSize: '13px',
-                      textTransform: 'capitalize',
-                      transition: 'all 0.2s ease'
+                      fontSize: '11px',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.1em',
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'monospace'
                     }}
                   >
                     {tab}
@@ -434,182 +604,265 @@ export default function App() {
                 ))}
               </div>
 
-              {/* Tab Content */}
+              {/* Palette Tab */}
               {activeTab === 'palette' && selectedColor && (
                 <div>
                   {/* Color Details */}
                   <div style={{ 
                     display: 'grid', 
-                    gridTemplateColumns: '120px 1fr', 
+                    gridTemplateColumns: '140px 1fr', 
                     gap: '24px',
-                    marginBottom: '40px'
+                    marginBottom: '40px',
+                    padding: '24px',
+                    background: 'rgba(0, 255, 136, 0.02)',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(0, 255, 136, 0.1)'
                   }}>
                     <div 
                       style={{ 
                         aspectRatio: '1',
                         backgroundColor: selectedColor, 
                         borderRadius: '12px',
-                        cursor: 'pointer'
+                        cursor: 'pointer',
+                        boxShadow: `0 0 40px ${selectedColor}40`
                       }}
                       onClick={() => copyToClipboard(selectedColor, selectedColor)}
                     />
                     <div>
-                      <div style={{ marginBottom: '16px' }}>
-                        <span style={{ fontSize: '11px', color: '#737373', display: 'block', marginBottom: '4px' }}>HEX</span>
-                        <span 
-                          style={{ fontFamily: 'monospace', cursor: 'pointer' }}
-                          onClick={() => copyToClipboard(selectedColor, 'HEX')}
-                        >
-                          {selectedColor.toUpperCase()}
-                        </span>
-                      </div>
-                      <div style={{ marginBottom: '16px' }}>
-                        <span style={{ fontSize: '11px', color: '#737373', display: 'block', marginBottom: '4px' }}>RGB</span>
-                        <span 
-                          style={{ fontFamily: 'monospace', cursor: 'pointer' }}
-                          onClick={() => {
-                            const rgb = hexToRgb(selectedColor);
-                            copyToClipboard(`rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`, 'RGB');
-                          }}
-                        >
-                          {(() => {
+                      {[
+                        { label: 'HEX', value: selectedColor.toUpperCase(), copy: selectedColor },
+                        { 
+                          label: 'RGB', 
+                          value: (() => {
                             const rgb = hexToRgb(selectedColor);
                             return `${rgb.r}, ${rgb.g}, ${rgb.b}`;
-                          })()}
-                        </span>
-                      </div>
-                      <div>
-                        <span style={{ fontSize: '11px', color: '#737373', display: 'block', marginBottom: '4px' }}>HSL</span>
-                        <span 
-                          style={{ fontFamily: 'monospace', cursor: 'pointer' }}
-                          onClick={() => {
+                          })(),
+                          copy: (() => {
                             const rgb = hexToRgb(selectedColor);
-                            const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
-                            copyToClipboard(`hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`, 'HSL');
-                          }}
-                        >
-                          {(() => {
+                            return `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+                          })()
+                        },
+                        { 
+                          label: 'HSL', 
+                          value: (() => {
                             const rgb = hexToRgb(selectedColor);
                             const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
                             return `${hsl.h}°, ${hsl.s}%, ${hsl.l}%`;
-                          })()}
-                        </span>
-                      </div>
+                          })(),
+                          copy: (() => {
+                            const rgb = hexToRgb(selectedColor);
+                            const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+                            return `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`;
+                          })()
+                        }
+                      ].map(({ label, value, copy }) => (
+                        <div key={label} style={{ marginBottom: '12px' }}>
+                          <span style={{ 
+                            fontSize: '10px', 
+                            color: '#666', 
+                            display: 'block', 
+                            marginBottom: '4px',
+                            fontFamily: 'monospace',
+                            letterSpacing: '0.1em'
+                          }}>
+                            {label}
+                          </span>
+                          <span 
+                            style={{ 
+                              fontFamily: 'monospace', 
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              transition: 'color 0.2s'
+                            }}
+                            onClick={() => copyToClipboard(copy, label)}
+                            onMouseEnter={(e) => e.target.style.color = '#00ff88'}
+                            onMouseLeave={(e) => e.target.style.color = '#fafafa'}
+                          >
+                            {value}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
 
                   {/* Harmonies */}
                   <div>
                     <h3 style={{ 
-                      fontSize: '11px', 
+                      fontSize: '10px', 
                       textTransform: 'uppercase', 
-                      letterSpacing: '0.1em',
-                      color: '#737373',
-                      marginBottom: '20px'
+                      letterSpacing: '0.15em',
+                      color: '#666',
+                      marginBottom: '20px',
+                      fontFamily: 'monospace'
                     }}>
                       Color Harmonies
                     </h3>
                     
-                    {Object.entries(harmonies).map(([name, palette]) => (
-                      <div key={name} style={{ marginBottom: '20px' }}>
-                        <span style={{ 
-                          fontSize: '12px', 
-                          color: '#a3a3a3', 
-                          textTransform: 'capitalize',
-                          display: 'block',
-                          marginBottom: '8px'
+                    {Object.entries(harmonies).map(([key, palette]) => {
+                      const info = harmonyDescriptions[key];
+                      return (
+                        <div key={key} style={{ 
+                          marginBottom: '24px',
+                          padding: '16px',
+                          background: 'rgba(0, 255, 136, 0.02)',
+                          borderRadius: '12px',
+                          border: '1px solid rgba(0, 255, 136, 0.1)'
                         }}>
-                          {name.replace(/([A-Z])/g, ' $1').trim()}
-                        </span>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          {palette.map((color, i) => (
-                            <div
-                              key={i}
-                              onClick={() => copyToClipboard(color, color)}
-                              style={{
-                                flex: 1,
-                                height: '40px',
-                                backgroundColor: color,
-                                borderRadius: i === 0 ? '6px 0 0 6px' : i === palette.length - 1 ? '0 6px 6px 0' : '0',
-                                cursor: 'pointer',
-                                transition: 'transform 0.1s ease'
-                              }}
-                              onMouseEnter={(e) => e.currentTarget.style.transform = 'scaleY(1.1)'}
-                              onMouseLeave={(e) => e.currentTarget.style.transform = 'scaleY(1)'}
-                            />
-                          ))}
+                          <div style={{ marginBottom: '12px' }}>
+                            <span style={{ 
+                              fontSize: '13px', 
+                              color: '#fafafa', 
+                              fontWeight: '500',
+                              display: 'block',
+                              marginBottom: '4px'
+                            }}>
+                              {info.name}
+                            </span>
+                            <span style={{ 
+                              fontSize: '11px', 
+                              color: '#888',
+                              display: 'block',
+                              marginBottom: '4px',
+                              lineHeight: '1.4'
+                            }}>
+                              {info.desc}
+                            </span>
+                            <span style={{ 
+                              fontSize: '10px', 
+                              color: '#00ff88',
+                              fontFamily: 'monospace'
+                            }}>
+                              ↳ {info.use}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            {palette.map((color, i) => (
+                              <div
+                                key={i}
+                                onClick={() => copyToClipboard(color, color)}
+                                style={{
+                                  flex: 1,
+                                  height: '48px',
+                                  backgroundColor: color,
+                                  borderRadius: i === 0 ? '6px 0 0 6px' : i === palette.length - 1 ? '0 6px 6px 0' : '0',
+                                  cursor: 'pointer',
+                                  transition: 'transform 0.1s ease',
+                                  position: 'relative'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.transform = 'scaleY(1.1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.transform = 'scaleY(1)'}
+                              >
+                                <span style={{
+                                  position: 'absolute',
+                                  bottom: '2px',
+                                  left: '50%',
+                                  transform: 'translateX(-50%)',
+                                  fontSize: '7px',
+                                  fontFamily: 'monospace',
+                                  color: getTextColor(color),
+                                  opacity: 0.8
+                                }}>
+                                  {color.slice(1).toUpperCase()}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
+              {/* Contrast Tab */}
               {activeTab === 'contrast' && colors.length > 0 && (
                 <div>
                   <h3 style={{ 
-                    fontSize: '11px', 
+                    fontSize: '10px', 
                     textTransform: 'uppercase', 
-                    letterSpacing: '0.1em',
-                    color: '#737373',
-                    marginBottom: '20px'
+                    letterSpacing: '0.15em',
+                    color: '#666',
+                    marginBottom: '20px',
+                    fontFamily: 'monospace'
                   }}>
                     WCAG Contrast Analysis
                   </h3>
                   
-                  <div style={{ display: 'grid', gap: '12px' }}>
+                  <div style={{ 
+                    display: 'grid', 
+                    gap: '8px',
+                    maxHeight: '600px',
+                    overflowY: 'auto',
+                    paddingRight: '8px'
+                  }}>
                     {colors.map((color1, i) => 
                       colors.slice(i + 1).map((color2, j) => {
                         const ratio = getContrastRatio(color1, color2);
-                        const { rating, color: ratingColor } = getWcagRating(ratio);
+                        const { rating, color: ratingColor, label } = getWcagRating(ratio);
                         
                         return (
                           <div 
                             key={`${i}-${j}`}
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: '60px 60px 1fr auto',
+                              gridTemplateColumns: '50px 50px 1fr auto',
                               alignItems: 'center',
-                              gap: '16px',
+                              gap: '12px',
                               padding: '12px',
-                              background: '#171717',
-                              borderRadius: '8px'
+                              background: 'rgba(0, 255, 136, 0.02)',
+                              borderRadius: '8px',
+                              border: '1px solid rgba(0, 255, 136, 0.1)'
                             }}
                           >
                             <div style={{ 
-                              width: '48px', 
-                              height: '48px', 
+                              width: '40px', 
+                              height: '40px', 
                               backgroundColor: color1, 
                               borderRadius: '6px' 
                             }} />
                             <div style={{ 
-                              width: '48px', 
-                              height: '48px', 
+                              width: '40px', 
+                              height: '40px', 
                               backgroundColor: color2, 
                               borderRadius: '6px' 
                             }} />
                             <div>
-                              <div style={{ fontSize: '14px', marginBottom: '4px' }}>
+                              <div style={{ 
+                                fontSize: '16px', 
+                                marginBottom: '2px',
+                                fontWeight: '600'
+                              }}>
                                 {ratio}:1
                               </div>
                               <div style={{ 
-                                fontSize: '11px', 
-                                color: '#737373',
+                                fontSize: '9px', 
+                                color: '#666',
                                 fontFamily: 'monospace' 
                               }}>
-                                {color1} / {color2}
+                                {color1} × {color2}
                               </div>
                             </div>
-                            <span style={{ 
-                              fontSize: '11px', 
-                              fontWeight: '600',
-                              color: ratingColor,
-                              padding: '4px 8px',
-                              background: `${ratingColor}20`,
-                              borderRadius: '4px'
-                            }}>
-                              {rating}
-                            </span>
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ 
+                                fontSize: '11px', 
+                                fontWeight: '600',
+                                color: ratingColor,
+                                padding: '4px 8px',
+                                background: `${ratingColor}15`,
+                                borderRadius: '4px',
+                                display: 'block',
+                                marginBottom: '2px',
+                                fontFamily: 'monospace'
+                              }}>
+                                {rating}
+                              </span>
+                              <span style={{
+                                fontSize: '9px',
+                                color: '#666'
+                              }}>
+                                {label}
+                              </span>
+                            </div>
                           </div>
                         );
                       })
@@ -618,106 +871,220 @@ export default function App() {
                 </div>
               )}
 
+              {/* Typography Tab */}
               {activeTab === 'typography' && selectedColor && (
                 <div>
-                  <h3 style={{ 
-                    fontSize: '11px', 
-                    textTransform: 'uppercase', 
-                    letterSpacing: '0.1em',
-                    color: '#737373',
-                    marginBottom: '20px'
+                  <div style={{ 
+                    display: 'flex', 
+                    gap: '24px', 
+                    marginBottom: '24px',
+                    flexWrap: 'wrap'
                   }}>
-                    Typography Preview
-                  </h3>
-                  
-                  {/* Light Background */}
-                  <div style={{
-                    background: '#fafafa',
-                    padding: '32px',
-                    borderRadius: '12px',
-                    marginBottom: '16px'
-                  }}>
-                    <h1 style={{ 
-                      color: selectedColor, 
-                      fontSize: '32px', 
-                      fontWeight: '700',
-                      marginBottom: '12px',
-                      lineHeight: 1.2
-                    }}>
-                      Display Heading
-                    </h1>
-                    <h2 style={{ 
-                      color: selectedColor, 
-                      fontSize: '20px', 
-                      fontWeight: '600',
-                      marginBottom: '12px',
-                      opacity: 0.9
-                    }}>
-                      Section Heading
-                    </h2>
-                    <p style={{ 
-                      color: '#171717', 
-                      fontSize: '14px', 
-                      lineHeight: 1.6,
-                      marginBottom: '12px'
-                    }}>
-                      Body text demonstrates readability. The quick brown fox jumps over the lazy dog. 
-                      This sample helps visualize how your palette works in context.
-                    </p>
-                    <a href="#" style={{ color: selectedColor, fontSize: '13px' }}>
-                      Link Text →
-                    </a>
+                    {/* Font Selector */}
+                    <div>
+                      <label style={{ 
+                        fontSize: '10px', 
+                        textTransform: 'uppercase', 
+                        letterSpacing: '0.15em',
+                        color: '#666',
+                        display: 'block',
+                        marginBottom: '8px',
+                        fontFamily: 'monospace'
+                      }}>
+                        Typeface
+                      </label>
+                      <select
+                        value={selectedFont}
+                        onChange={(e) => setSelectedFont(e.target.value)}
+                        style={{
+                          background: 'rgba(0, 255, 136, 0.05)',
+                          border: '1px solid rgba(0, 255, 136, 0.2)',
+                          borderRadius: '6px',
+                          padding: '8px 12px',
+                          color: '#fafafa',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          minWidth: '160px'
+                        }}
+                      >
+                        {fonts.map(font => (
+                          <option key={font.name} value={font.name} style={{ background: '#0a0a0f' }}>
+                            {font.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Background Toggle */}
+                    <div>
+                      <label style={{ 
+                        fontSize: '10px', 
+                        textTransform: 'uppercase', 
+                        letterSpacing: '0.15em',
+                        color: '#666',
+                        display: 'block',
+                        marginBottom: '8px',
+                        fontFamily: 'monospace'
+                      }}>
+                        Background
+                      </label>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        {['light', 'dark', 'color'].map(bg => (
+                          <button
+                            key={bg}
+                            onClick={() => setPreviewBg(bg)}
+                            style={{
+                              background: previewBg === bg 
+                                ? 'rgba(0, 255, 136, 0.1)' 
+                                : 'transparent',
+                              border: previewBg === bg 
+                                ? '1px solid rgba(0, 255, 136, 0.3)' 
+                                : '1px solid rgba(255, 255, 255, 0.1)',
+                              padding: '8px 12px',
+                              borderRadius: '6px',
+                              color: previewBg === bg ? '#00ff88' : '#666',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              textTransform: 'capitalize',
+                              fontFamily: 'monospace'
+                            }}
+                          >
+                            {bg}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Size Controls */}
+                    <div>
+                      <label style={{ 
+                        fontSize: '10px', 
+                        textTransform: 'uppercase', 
+                        letterSpacing: '0.15em',
+                        color: '#666',
+                        display: 'block',
+                        marginBottom: '8px',
+                        fontFamily: 'monospace'
+                      }}>
+                        H1 Size: {fontSize.h1}px
+                      </label>
+                      <input
+                        type="range"
+                        min="24"
+                        max="72"
+                        value={fontSize.h1}
+                        onChange={(e) => setFontSize({ ...fontSize, h1: parseInt(e.target.value) })}
+                        style={{ width: '120px', accentColor: '#00ff88' }}
+                      />
+                    </div>
                   </div>
 
-                  {/* Dark Background */}
+                  {/* Preview */}
                   <div style={{
-                    background: selectedColor,
-                    padding: '32px',
-                    borderRadius: '12px'
+                    background: previewBg === 'light' ? '#fafafa' 
+                      : previewBg === 'dark' ? '#0a0a0f' 
+                      : selectedColor,
+                    padding: '48px',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(0, 255, 136, 0.2)'
                   }}>
                     <h1 style={{ 
-                      color: '#fff', 
-                      fontSize: '32px', 
+                      color: previewBg === 'color' ? getTextColor(selectedColor) : selectedColor, 
+                      fontSize: `${fontSize.h1}px`, 
                       fontWeight: '700',
-                      marginBottom: '12px',
-                      lineHeight: 1.2
+                      marginBottom: '16px',
+                      lineHeight: 1.1,
+                      fontFamily: fonts.find(f => f.name === selectedFont)?.stack
                     }}>
                       Display Heading
                     </h1>
                     <h2 style={{ 
-                      color: '#fff', 
-                      fontSize: '20px', 
+                      color: previewBg === 'color' ? getTextColor(selectedColor) 
+                        : previewBg === 'light' ? selectedColor : '#fafafa', 
+                      fontSize: `${fontSize.h2}px`, 
                       fontWeight: '600',
-                      marginBottom: '12px',
-                      opacity: 0.9
+                      marginBottom: '16px',
+                      opacity: 0.9,
+                      fontFamily: fonts.find(f => f.name === selectedFont)?.stack
                     }}>
                       Section Heading
                     </h2>
                     <p style={{ 
-                      color: 'rgba(255,255,255,0.9)', 
-                      fontSize: '14px', 
-                      lineHeight: 1.6
+                      color: previewBg === 'color' 
+                        ? `${getTextColor(selectedColor)}dd`
+                        : previewBg === 'light' ? '#171717' : '#e5e5e5', 
+                      fontSize: `${fontSize.body}px`, 
+                      lineHeight: 1.7,
+                      marginBottom: '16px',
+                      fontFamily: fonts.find(f => f.name === selectedFont)?.stack
                     }}>
-                      Body text on colored background. The quick brown fox jumps over the lazy dog. 
-                      This preview helps assess text legibility on your chosen color.
+                      Body text demonstrates readability across different backgrounds. 
+                      The quick brown fox jumps over the lazy dog. This sample helps 
+                      visualize how your palette works with real typography in context.
                     </p>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                      <button style={{
+                        background: previewBg === 'color' ? getTextColor(selectedColor) : selectedColor,
+                        color: previewBg === 'color' ? selectedColor : getTextColor(selectedColor),
+                        border: 'none',
+                        padding: '12px 24px',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        fontFamily: fonts.find(f => f.name === selectedFont)?.stack
+                      }}>
+                        Primary Button
+                      </button>
+                      <a href="#" style={{ 
+                        color: previewBg === 'color' ? getTextColor(selectedColor) : selectedColor, 
+                        fontSize: '14px',
+                        fontFamily: fonts.find(f => f.name === selectedFont)?.stack
+                      }}>
+                        Link Text →
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Contrast info for current preview */}
+                  <div style={{
+                    marginTop: '16px',
+                    padding: '12px 16px',
+                    background: 'rgba(0, 255, 136, 0.02)',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(0, 255, 136, 0.1)',
+                    fontSize: '11px',
+                    color: '#888',
+                    fontFamily: 'monospace'
+                  }}>
+                    {(() => {
+                      const bgColor = previewBg === 'light' ? '#fafafa' 
+                        : previewBg === 'dark' ? '#0a0a0f' 
+                        : selectedColor;
+                      const textColor = previewBg === 'color' ? getTextColor(selectedColor) : selectedColor;
+                      const ratio = getContrastRatio(bgColor, textColor);
+                      const { rating } = getWcagRating(ratio);
+                      return `Heading contrast: ${ratio}:1 (${rating})`;
+                    })()}
                   </div>
                 </div>
               )}
 
+              {/* Export Tab */}
               {activeTab === 'export' && colors.length > 0 && (
                 <div>
                   <h3 style={{ 
-                    fontSize: '11px', 
+                    fontSize: '10px', 
                     textTransform: 'uppercase', 
-                    letterSpacing: '0.1em',
-                    color: '#737373',
-                    marginBottom: '20px'
+                    letterSpacing: '0.15em',
+                    color: '#666',
+                    marginBottom: '20px',
+                    fontFamily: 'monospace'
                   }}>
                     Export Formats
                   </h3>
                   
-                  {['css', 'scss', 'tailwind', 'json'].map(format => (
+                  {['css', 'scss', 'tailwind', 'json', 'figma'].map(format => (
                     <div key={format} style={{ marginBottom: '20px' }}>
                       <div style={{ 
                         display: 'flex', 
@@ -726,36 +1093,40 @@ export default function App() {
                         marginBottom: '8px'
                       }}>
                         <span style={{ 
-                          fontSize: '12px', 
-                          color: '#a3a3a3', 
-                          textTransform: 'uppercase'
+                          fontSize: '11px', 
+                          color: '#888', 
+                          textTransform: 'uppercase',
+                          fontFamily: 'monospace',
+                          letterSpacing: '0.1em'
                         }}>
                           {format}
                         </span>
                         <button
                           onClick={() => copyToClipboard(generateExport(format), format.toUpperCase())}
                           style={{
-                            background: '#262626',
-                            border: 'none',
+                            background: 'rgba(0, 255, 136, 0.1)',
+                            border: '1px solid rgba(0, 255, 136, 0.2)',
                             padding: '4px 12px',
                             borderRadius: '4px',
-                            color: '#a3a3a3',
+                            color: '#00ff88',
                             cursor: 'pointer',
-                            fontSize: '11px'
+                            fontSize: '10px',
+                            fontFamily: 'monospace'
                           }}
                         >
-                          Copy
+                          COPY
                         </button>
                       </div>
                       <pre style={{
-                        background: '#171717',
+                        background: 'rgba(0, 255, 136, 0.02)',
+                        border: '1px solid rgba(0, 255, 136, 0.1)',
                         padding: '16px',
                         borderRadius: '8px',
-                        fontSize: '12px',
-                        fontFamily: 'monospace',
+                        fontSize: '11px',
+                        fontFamily: '"JetBrains Mono", monospace',
                         overflow: 'auto',
                         margin: 0,
-                        color: '#a3a3a3'
+                        color: '#888'
                       }}>
                         {generateExport(format)}
                       </pre>
@@ -778,6 +1149,9 @@ export default function App() {
       />
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
+      {/* Google Fonts */}
+      <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&family=Crimson+Pro:wght@400;600;700&display=swap" rel="stylesheet" />
+
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(-10px); }
@@ -788,6 +1162,19 @@ export default function App() {
         }
         body {
           margin: 0;
+        }
+        ::-webkit-scrollbar {
+          width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+          background: rgba(0, 255, 136, 0.05);
+        }
+        ::-webkit-scrollbar-thumb {
+          background: rgba(0, 255, 136, 0.2);
+          border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: rgba(0, 255, 136, 0.3);
         }
       `}</style>
     </div>
