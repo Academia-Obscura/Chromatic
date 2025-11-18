@@ -36,6 +36,7 @@ export default function App() {
       bgPaddingV: 12,
       bgWidth: 'auto', // auto, full, custom
       bgCustomWidth: 100,
+      autoBg: true, // auto-select best contrasting bg when text color changes
       position: { x: 50, y: 50 }, // percentage based
       fontSize: 48,
       fontWeight: '700',
@@ -146,6 +147,25 @@ export default function App() {
     return bestCombo;
   }, [colors, generatedPalette]);
 
+  // Get best background color for a specific text color
+  const getBestBgForTextColor = useCallback((textColor) => {
+    const availableColors = [...currentColors, '#ffffff', '#000000'];
+    let bestBg = '#000000';
+    let bestRatio = 0;
+    
+    availableColors.forEach(bgColor => {
+      if (textColor !== bgColor) {
+        const ratio = parseFloat(getContrastRatio(textColor, bgColor));
+        if (ratio > bestRatio) {
+          bestRatio = ratio;
+          bestBg = bgColor;
+        }
+      }
+    });
+    
+    return bestBg;
+  }, [colors, generatedPalette]);
+
   // Get overlay color options based on selected harmony
   const getOverlayColorOptions = useCallback(() => {
     const baseColors = ['#ffffff', '#000000'];
@@ -254,6 +274,7 @@ export default function App() {
       bgPaddingV: 12,
       bgWidth: 'auto',
       bgCustomWidth: 100,
+      autoBg: true,
       position: { x: 50, y: 30 + (textLayers.length * 20) },
       fontSize: textLayers.length === 0 ? 48 : textLayers.length === 1 ? 24 : 18,
       fontWeight: textLayers.length === 0 ? '700' : '500',
@@ -269,6 +290,17 @@ export default function App() {
     setTextLayers(textLayers.map(layer => 
       layer.id === id ? { ...layer, ...updates } : layer
     ));
+  };
+
+  // Update text color with auto background selection
+  const updateTextColorWithAutoBg = (id, newTextColor) => {
+    const layer = textLayers.find(l => l.id === id);
+    if (layer && layer.bgEnabled && layer.autoBg) {
+      const bestBg = getBestBgForTextColor(newTextColor);
+      updateTextLayer(id, { color: newTextColor, bgColor: bestBg });
+    } else {
+      updateTextLayer(id, { color: newTextColor });
+    }
   };
 
   const deleteTextLayer = (id) => {
@@ -808,7 +840,7 @@ export default function App() {
                             return (
                               <div key={i} style={{ position: 'relative' }}>
                                 <button 
-                                  onClick={() => updateTextLayer(activeLayer.id, { color })} 
+                                  onClick={() => updateTextColorWithAutoBg(activeLayer.id, color)} 
                                   style={{ 
                                     width: '24px', 
                                     height: '24px', 
@@ -868,23 +900,41 @@ export default function App() {
                             BG BOX
                           </button>
                           {activeLayer.bgEnabled && (
-                            <div style={{ display: 'flex', gap: '2px' }}>
-                              {['#000000', '#ffffff', ...currentColors.slice(0, 4)].map((color, i) => (
-                                <button 
-                                  key={i} 
-                                  onClick={() => updateTextLayer(activeLayer.id, { bgColor: color })} 
-                                  style={{ 
-                                    width: '20px', 
-                                    height: '20px', 
-                                    borderRadius: '3px', 
-                                    border: `1px solid ${activeLayer.bgColor === color ? currentTheme.accent : 'transparent'}`, 
-                                    background: color, 
-                                    cursor: 'pointer', 
-                                    padding: 0 
-                                  }} 
-                                />
-                              ))}
-                            </div>
+                            <>
+                              <button 
+                                onClick={() => updateTextLayer(activeLayer.id, { autoBg: !activeLayer.autoBg })} 
+                                style={{ 
+                                  background: activeLayer.autoBg ? `${currentTheme.accent}30` : 'transparent', 
+                                  border: `1px solid ${activeLayer.autoBg ? currentTheme.accent : `${effectiveText}30`}`, 
+                                  borderRadius: '4px', 
+                                  padding: '4px 6px', 
+                                  color: activeLayer.autoBg ? currentTheme.accent : effectiveTextMuted, 
+                                  cursor: 'pointer', 
+                                  fontSize: '8px', 
+                                  fontFamily: 'monospace' 
+                                }}
+                                title="Auto-select best contrasting background when text color changes"
+                              >
+                                AUTO
+                              </button>
+                              <div style={{ display: 'flex', gap: '2px' }}>
+                                {['#000000', '#ffffff', ...currentColors.slice(0, 4)].map((color, i) => (
+                                  <button 
+                                    key={i} 
+                                    onClick={() => updateTextLayer(activeLayer.id, { bgColor: color })} 
+                                    style={{ 
+                                      width: '20px', 
+                                      height: '20px', 
+                                      borderRadius: '3px', 
+                                      border: `1px solid ${activeLayer.bgColor === color ? currentTheme.accent : 'transparent'}`, 
+                                      background: color, 
+                                      cursor: 'pointer', 
+                                      padding: 0 
+                                    }} 
+                                  />
+                                ))}
+                              </div>
+                            </>
                           )}
                         </div>
                         
