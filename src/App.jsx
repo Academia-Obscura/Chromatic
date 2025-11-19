@@ -21,6 +21,24 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   
+  // Palette generator
+  const [palettePrompt, setPalettePrompt] = useState('');
+  const [recentPrompts, setRecentPrompts] = useState([]);
+  const [lockedColors, setLockedColors] = useState([]);
+  
+  // Font pairing
+  const [fontPairPrompt, setFontPairPrompt] = useState('');
+  const [selectedHeadingFont, setSelectedHeadingFont] = useState('Space Grotesk');
+  const [selectedBodyFont, setSelectedBodyFont] = useState('Inter');
+  const [fontPreviewHeading, setFontPreviewHeading] = useState('Your Headline Here');
+  const [fontPreviewSubhead, setFontPreviewSubhead] = useState('Your subheading text goes here to preview the pairing');
+  const [fontPreviewBg, setFontPreviewBg] = useState('light');
+  const [suggestedPairs, setSuggestedPairs] = useState([]);
+  
+  // Smart color mode
+  const [smartColorEnabled, setSmartColorEnabled] = useState(false);
+  const smartColorCanvasRef = useRef(null);
+  
   // Multiple text layers support
   const [textLayers, setTextLayers] = useState([
     {
@@ -66,6 +84,122 @@ export default function App() {
     minimal: { name: 'Minimal', fontWeight: '300', letterSpacing: 4, fontSize: 36 },
     loud: { name: 'Loud & Proud', fontWeight: '900', letterSpacing: -2, fontSize: 56 }
   };
+
+  // Color keyword mappings for palette generation
+  const colorKeywords = {
+    calm: { h: [180, 220], s: [20, 40], l: [50, 70] },
+    energetic: { h: [0, 60], s: [70, 100], l: [50, 60] },
+    luxury: { h: [270, 310], s: [30, 60], l: [20, 40] },
+    playful: { h: [280, 340], s: [60, 80], l: [55, 70] },
+    serious: { h: [200, 240], s: [20, 40], l: [25, 45] },
+    warm: { h: [0, 50], s: [50, 80], l: [45, 65] },
+    cool: { h: [180, 240], s: [40, 70], l: [40, 60] },
+    natural: { h: [60, 150], s: [30, 60], l: [35, 55] },
+    bold: { h: [0, 360], s: [80, 100], l: [45, 55] },
+    muted: { h: [0, 360], s: [10, 30], l: [40, 60] },
+    fresh: { h: [80, 160], s: [50, 80], l: [50, 70] },
+    elegant: { h: [0, 60], s: [10, 30], l: [20, 40] },
+    vintage: { h: [20, 60], s: [30, 50], l: [40, 60] },
+    modern: { h: [200, 260], s: [60, 90], l: [45, 60] },
+    rustic: { h: [20, 50], s: [40, 60], l: [30, 50] },
+    tropical: { h: [140, 200], s: [60, 90], l: [45, 65] },
+    romantic: { h: [330, 360], s: [40, 70], l: [60, 80] },
+    professional: { h: [200, 230], s: [50, 80], l: [30, 50] },
+    creative: { h: [260, 320], s: [60, 90], l: [50, 65] },
+    trustworthy: { h: [200, 220], s: [60, 80], l: [35, 50] },
+    friendly: { h: [30, 60], s: [60, 80], l: [55, 70] },
+    sophisticated: { h: [0, 30], s: [10, 30], l: [15, 35] },
+    retro: { h: [10, 50], s: [50, 80], l: [50, 65] },
+    minimalist: { h: [0, 360], s: [0, 15], l: [30, 90] },
+    vibrant: { h: [0, 360], s: [85, 100], l: [50, 60] },
+    earthy: { h: [25, 45], s: [35, 55], l: [30, 50] },
+    oceanic: { h: [180, 210], s: [50, 80], l: [40, 60] },
+    sunset: { h: [0, 45], s: [70, 100], l: [50, 70] },
+    forest: { h: [100, 150], s: [40, 70], l: [25, 45] },
+    pastel: { h: [0, 360], s: [30, 50], l: [75, 90] },
+    neon: { h: [0, 360], s: [100, 100], l: [50, 60] },
+    autumn: { h: [15, 45], s: [60, 85], l: [40, 60] },
+    winter: { h: [200, 240], s: [20, 50], l: [70, 90] },
+    spring: { h: [80, 160], s: [50, 75], l: [60, 80] },
+    summer: { h: [40, 60], s: [70, 100], l: [55, 70] },
+    night: { h: [230, 280], s: [40, 70], l: [15, 35] },
+    corporate: { h: [200, 230], s: [60, 90], l: [30, 50] },
+    startup: { h: [180, 280], s: [70, 100], l: [50, 65] },
+    healthcare: { h: [160, 200], s: [40, 70], l: [45, 65] },
+    tech: { h: [200, 270], s: [70, 100], l: [45, 60] },
+    wellness: { h: [100, 180], s: [30, 60], l: [50, 70] },
+    wedding: { h: [330, 60], s: [20, 50], l: [80, 95] },
+    spa: { h: [140, 200], s: [20, 50], l: [60, 80] },
+    coffee: { h: [20, 40], s: [40, 70], l: [20, 45] },
+    beach: { h: [180, 220], s: [50, 80], l: [60, 80] },
+    space: { h: [240, 280], s: [60, 90], l: [15, 35] },
+    fire: { h: [0, 40], s: [90, 100], l: [45, 60] },
+    ice: { h: [190, 220], s: [30, 60], l: [75, 95] },
+    gold: { h: [40, 55], s: [70, 100], l: [45, 60] },
+    royal: { h: [260, 290], s: [60, 90], l: [30, 50] },
+    cyberpunk: { h: [280, 330], s: [80, 100], l: [45, 60] },
+    bohemian: { h: [0, 60], s: [50, 80], l: [45, 65] },
+    scandinavian: { h: [0, 60], s: [10, 30], l: [70, 95] },
+    japanese: { h: [0, 30], s: [30, 60], l: [40, 70] },
+    mediterranean: { h: [180, 220], s: [50, 80], l: [50, 70] }
+  };
+
+  // Font pairing database
+  const fontPairs = {
+    'modern minimal': [
+      { heading: 'Space Grotesk', body: 'Inter' },
+      { heading: 'Outfit', body: 'Source Sans Pro' },
+      { heading: 'DM Sans', body: 'Inter' }
+    ],
+    'editorial luxury': [
+      { heading: 'Playfair Display', body: 'Lora' },
+      { heading: 'Cormorant Garamond', body: 'Crimson Pro' },
+      { heading: 'Libre Baskerville', body: 'Source Serif Pro' }
+    ],
+    'tech forward': [
+      { heading: 'Syne', body: 'IBM Plex Sans' },
+      { heading: 'JetBrains Mono', body: 'Inter' },
+      { heading: 'Space Mono', body: 'Work Sans' }
+    ],
+    'friendly approachable': [
+      { heading: 'Quicksand', body: 'Nunito' },
+      { heading: 'Poppins', body: 'Open Sans' },
+      { heading: 'Comfortaa', body: 'Lato' }
+    ],
+    'classic professional': [
+      { heading: 'Merriweather', body: 'Source Sans Pro' },
+      { heading: 'Roboto Slab', body: 'Roboto' },
+      { heading: 'Lora', body: 'Open Sans' }
+    ],
+    'bold statement': [
+      { heading: 'Oswald', body: 'Quattrocento Sans' },
+      { heading: 'Anton', body: 'Work Sans' },
+      { heading: 'Bebas Neue', body: 'Montserrat' }
+    ],
+    'elegant sophisticated': [
+      { heading: 'Cormorant', body: 'Raleway' },
+      { heading: 'Playfair Display', body: 'Montserrat' },
+      { heading: 'Cinzel', body: 'Fauna One' }
+    ],
+    'startup tech': [
+      { heading: 'Plus Jakarta Sans', body: 'Inter' },
+      { heading: 'Manrope', body: 'DM Sans' },
+      { heading: 'Sora', body: 'Work Sans' }
+    ],
+    'creative artistic': [
+      { heading: 'Abril Fatface', body: 'Lato' },
+      { heading: 'Yeseva One', body: 'Roboto' },
+      { heading: 'Rozha One', body: 'Poppins' }
+    ]
+  };
+
+  const classicPairs = [
+    { heading: 'Playfair Display', body: 'Source Sans Pro' },
+    { heading: 'Space Grotesk', body: 'Inter' },
+    { heading: 'Montserrat', body: 'Open Sans' },
+    { heading: 'Oswald', body: 'Lato' },
+    { heading: 'Merriweather', body: 'Roboto' }
+  ];
 
   const canvasRef = useRef(null);
   const exportCanvasRef = useRef(null);
@@ -177,6 +311,158 @@ export default function App() {
     return allColors.slice(0, 10);
   }, [harmonies, selectedHarmony, colors, generatedPalette]);
 
+  // Generate palette from prompt
+  const generatePaletteFromPrompt = useCallback((prompt) => {
+    if (!prompt.trim()) return;
+    
+    const words = prompt.toLowerCase().split(/\s+/);
+    let hRanges = [], sRanges = [], lRanges = [];
+    
+    words.forEach(word => {
+      if (colorKeywords[word]) {
+        const kw = colorKeywords[word];
+        hRanges.push(kw.h);
+        sRanges.push(kw.s);
+        lRanges.push(kw.l);
+      }
+      Object.keys(colorKeywords).forEach(key => {
+        if ((key.includes(word) || word.includes(key)) && !colorKeywords[word]) {
+          const kw = colorKeywords[key];
+          hRanges.push(kw.h);
+          sRanges.push(kw.s);
+          lRanges.push(kw.l);
+        }
+      });
+    });
+    
+    if (hRanges.length === 0) {
+      hRanges = [[0, 360]];
+      sRanges = [[40, 70]];
+      lRanges = [[40, 60]];
+    }
+    
+    const newPalette = [];
+    for (let i = 0; i < 6; i++) {
+      if (lockedColors[i]) {
+        newPalette.push(lockedColors[i]);
+      } else {
+        const hRange = hRanges[i % hRanges.length];
+        const sRange = sRanges[i % sRanges.length];
+        const lRange = lRanges[i % lRanges.length];
+        
+        const h = hRange[0] + Math.random() * (hRange[1] - hRange[0]);
+        const s = sRange[0] + Math.random() * (sRange[1] - sRange[0]);
+        const l = lRange[0] + Math.random() * (lRange[1] - lRange[0]);
+        
+        newPalette.push(hslToHex(h, s, l));
+      }
+    }
+    
+    setGeneratedPalette(newPalette);
+    setColors(newPalette);
+    setImage(null);
+    if (newPalette.length > 0) {
+      setSelectedColor(newPalette[0]);
+      setHarmonies(generateHarmonies(newPalette[0]));
+    }
+    
+    if (!recentPrompts.includes(prompt)) {
+      setRecentPrompts([prompt, ...recentPrompts.slice(0, 4)]);
+    }
+  }, [lockedColors, recentPrompts]);
+
+  // Generate font pairs from prompt
+  const generateFontPairs = useCallback((prompt) => {
+    if (!prompt.trim()) {
+      setSuggestedPairs(classicPairs);
+      return;
+    }
+    
+    const words = prompt.toLowerCase().split(/\s+/);
+    let matches = [];
+    
+    Object.keys(fontPairs).forEach(category => {
+      const categoryWords = category.split(' ');
+      let score = 0;
+      words.forEach(word => {
+        categoryWords.forEach(catWord => {
+          if (catWord.includes(word) || word.includes(catWord)) {
+            score += 1;
+          }
+        });
+      });
+      if (score > 0) {
+        matches.push({ category, score, pairs: fontPairs[category] });
+      }
+    });
+    
+    matches.sort((a, b) => b.score - a.score);
+    
+    if (matches.length > 0) {
+      const pairs = matches.flatMap(m => m.pairs).slice(0, 5);
+      setSuggestedPairs(pairs);
+      if (pairs.length > 0) {
+        setSelectedHeadingFont(pairs[0].heading);
+        setSelectedBodyFont(pairs[0].body);
+      }
+    } else {
+      setSuggestedPairs(classicPairs);
+    }
+  }, []);
+
+  // Sample region color for smart color mode
+  const sampleRegionColor = useCallback((x, y) => {
+    if (!image || !smartColorCanvasRef.current) return null;
+    
+    const canvas = smartColorCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    
+    const sampleSize = 50;
+    const startX = Math.max(0, Math.floor((x / 100) * canvas.width - sampleSize / 2));
+    const startY = Math.max(0, Math.floor((y / 100) * canvas.height - sampleSize / 2));
+    const endX = Math.min(canvas.width, startX + sampleSize);
+    const endY = Math.min(canvas.height, startY + sampleSize);
+    
+    try {
+      const imageData = ctx.getImageData(startX, startY, endX - startX, endY - startY);
+      let totalR = 0, totalG = 0, totalB = 0, count = 0;
+      
+      for (let i = 0; i < imageData.data.length; i += 4) {
+        totalR += imageData.data[i];
+        totalG += imageData.data[i + 1];
+        totalB += imageData.data[i + 2];
+        count++;
+      }
+      
+      if (count > 0) {
+        return rgbToHex(totalR / count, totalG / count, totalB / count);
+      }
+    } catch (e) {
+      console.error('Error sampling region:', e);
+    }
+    
+    return null;
+  }, [image]);
+
+  // Apply smart color to layer based on position
+  const applySmartColorToLayer = useCallback((id, position) => {
+    if (!smartColorEnabled || !image) return;
+    
+    const regionColor = sampleRegionColor(position.x, position.y);
+    if (regionColor) {
+      const layer = textLayers.find(l => l.id === id);
+      if (layer) {
+        const bestTextColor = getTextColor(regionColor);
+        if (layer.bgEnabled && layer.autoBg) {
+          const bestBg = getBestBgForTextColor(bestTextColor);
+          updateTextLayer(id, { color: bestTextColor, bgColor: bestBg });
+        } else {
+          updateTextLayer(id, { color: bestTextColor });
+        }
+      }
+    }
+  }, [smartColorEnabled, image, sampleRegionColor, textLayers, getBestBgForTextColor]);
+
   const generateHarmonies = (hex) => {
     const rgb = hexToRgb(hex); if (!rgb) return {};
     const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
@@ -233,6 +519,16 @@ export default function App() {
       canvas.width = img.width * scale;
       canvas.height = img.height * scale;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      // Also draw to smart color canvas for region sampling
+      if (smartColorCanvasRef.current) {
+        const smartCanvas = smartColorCanvasRef.current;
+        const smartCtx = smartCanvas.getContext('2d');
+        smartCanvas.width = img.width * scale;
+        smartCanvas.height = img.height * scale;
+        smartCtx.drawImage(img, 0, 0, smartCanvas.width, smartCanvas.height);
+      }
+      
       const extracted = extractColors(ctx.getImageData(0, 0, canvas.width, canvas.height), count);
       setColors(extracted);
       setGeneratedPalette([]);
@@ -361,7 +657,12 @@ export default function App() {
     const y = Math.max(0, Math.min(100, ((clientY - rect.top - dragOffset.y) / rect.height) * 100));
     
     updateTextLayer(activeLayerId, { position: { x, y } });
-  }, [isDragging, activeLayerId, dragOffset]);
+    
+    // Apply smart color if enabled
+    if (smartColorEnabled) {
+      applySmartColorToLayer(activeLayerId, { x, y });
+    }
+  }, [isDragging, activeLayerId, dragOffset, smartColorEnabled, applySmartColorToLayer]);
 
   const handleDragEnd = useCallback(() => {
     setIsDragging(false);
@@ -525,6 +826,26 @@ export default function App() {
             <div>
               {image ? (
                 <div style={{ marginBottom: '24px' }}>
+                  {/* Smart Color toggle */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.15em', color: effectiveTextMuted, fontFamily: 'monospace' }}>Preview</span>
+                    <button 
+                      onClick={() => setSmartColorEnabled(!smartColorEnabled)}
+                      style={{ 
+                        background: smartColorEnabled ? `${currentTheme.accent}30` : 'transparent', 
+                        border: `1px solid ${smartColorEnabled ? currentTheme.accent : effectiveText + '30'}`, 
+                        borderRadius: '4px', 
+                        padding: '4px 8px', 
+                        color: smartColorEnabled ? currentTheme.accent : effectiveTextMuted, 
+                        cursor: 'pointer', 
+                        fontSize: '9px', 
+                        fontFamily: 'monospace' 
+                      }}
+                      title="Auto-update text color based on position"
+                    >
+                      SMART COLOR {smartColorEnabled ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
                   <div 
                     ref={imageContainerRef}
                     style={{ 
@@ -1051,10 +1372,96 @@ export default function App() {
 
             <div>
               <div style={{ display: 'flex', gap: '4px', marginBottom: '32px', borderBottom: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`, paddingBottom: '16px' }}>
-                {['palette', 'contrast', 'typography', 'export'].map(tab => (
+                {['generate', 'palette', 'fonts', 'contrast', 'typography', 'export'].map(tab => (
                   <button key={tab} onClick={() => setActiveTab(tab)} style={{ background: activeTab === tab ? `${appBgColor ? effectiveText : currentTheme.accent}15` : 'transparent', border: `1px solid ${activeTab === tab ? (appBgColor ? effectiveText : currentTheme.accent) : 'transparent'}`, padding: '8px 16px', borderRadius: '6px', color: activeTab === tab ? (appBgColor ? effectiveText : currentTheme.accent) : effectiveTextMuted, cursor: 'pointer', fontSize: '12px', textTransform: 'capitalize', fontFamily: 'monospace' }}>{tab}</button>
                 ))}
               </div>
+
+              {/* Generate Tab */}
+              {activeTab === 'generate' && (
+                <div>
+                  <h3 style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.15em', color: effectiveTextMuted, marginBottom: '16px', fontFamily: 'monospace' }}>Generate Palette from Prompt</h3>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                    <input 
+                      type="text" 
+                      value={palettePrompt} 
+                      onChange={(e) => setPalettePrompt(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && generatePaletteFromPrompt(palettePrompt)}
+                      placeholder="e.g., sunset beach, luxury minimal, tech startup..."
+                      style={{ flex: 1, background: appBgColor ? `${effectiveText}10` : currentTheme.surface, border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`, borderRadius: '8px', padding: '12px 16px', color: effectiveText, fontSize: '14px' }} 
+                    />
+                    <button onClick={() => generatePaletteFromPrompt(palettePrompt)} style={{ background: appBgColor ? effectiveText : currentTheme.accent, border: 'none', borderRadius: '8px', padding: '12px 24px', color: appBgColor ? appBgColor : getTextColor(currentTheme.accent), cursor: 'pointer', fontSize: '12px', fontFamily: 'monospace', fontWeight: '600' }}>GENERATE</button>
+                  </div>
+                  {recentPrompts.length > 0 && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <span style={{ fontSize: '10px', color: effectiveTextMuted, fontFamily: 'monospace' }}>Recent: </span>
+                      {recentPrompts.map((prompt, i) => (
+                        <button key={i} onClick={() => { setPalettePrompt(prompt); generatePaletteFromPrompt(prompt); }} style={{ background: 'transparent', border: `1px solid ${effectiveText}20`, borderRadius: '4px', padding: '4px 8px', color: effectiveTextMuted, cursor: 'pointer', fontSize: '10px', marginLeft: '8px', fontFamily: 'monospace' }}>{prompt}</button>
+                      ))}
+                    </div>
+                  )}
+                  {currentColors.length > 0 && (
+                    <div>
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                        {currentColors.map((color, i) => (
+                          <div key={i} onClick={() => handleColorSelect(color)} style={{ flex: 1, aspectRatio: '1', backgroundColor: color, borderRadius: '8px', cursor: 'pointer', border: selectedColor === color ? `3px solid ${currentTheme.accent}` : '3px solid transparent', position: 'relative' }}>
+                            <span style={{ position: 'absolute', bottom: '4px', left: '4px', fontSize: '7px', fontFamily: 'monospace', color: getTextColor(color) }}>{color.toUpperCase()}</span>
+                            <button onClick={(e) => { e.stopPropagation(); const newLocked = [...lockedColors]; newLocked[i] = newLocked[i] ? null : color; setLockedColors(newLocked); }} style={{ position: 'absolute', top: '4px', right: '4px', background: lockedColors[i] ? currentTheme.accent : 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '3px', padding: '2px 4px', cursor: 'pointer', fontSize: '8px', color: '#fff' }}>{lockedColors[i] ? '🔒' : '🔓'}</button>
+                          </div>
+                        ))}
+                      </div>
+                      <button onClick={() => generatePaletteFromPrompt(palettePrompt || 'vibrant modern')} style={{ background: 'transparent', border: `1px solid ${effectiveText}30`, borderRadius: '6px', padding: '8px 16px', color: effectiveTextMuted, cursor: 'pointer', fontSize: '11px', fontFamily: 'monospace' }}>REGENERATE (keeps locked)</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Fonts Tab */}
+              {activeTab === 'fonts' && (
+                <div>
+                  <h3 style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.15em', color: effectiveTextMuted, marginBottom: '16px', fontFamily: 'monospace' }}>Font Pairing</h3>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                    <input 
+                      type="text" 
+                      value={fontPairPrompt} 
+                      onChange={(e) => setFontPairPrompt(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && generateFontPairs(fontPairPrompt)}
+                      placeholder="e.g., modern minimal, editorial luxury, tech startup..."
+                      style={{ flex: 1, background: appBgColor ? `${effectiveText}10` : currentTheme.surface, border: `1px solid ${appBgColor ? `${effectiveText}20` : currentTheme.border}`, borderRadius: '8px', padding: '12px 16px', color: effectiveText, fontSize: '14px' }} 
+                    />
+                    <button onClick={() => generateFontPairs(fontPairPrompt)} style={{ background: appBgColor ? effectiveText : currentTheme.accent, border: 'none', borderRadius: '8px', padding: '12px 24px', color: appBgColor ? appBgColor : getTextColor(currentTheme.accent), cursor: 'pointer', fontSize: '12px', fontFamily: 'monospace', fontWeight: '600' }}>FIND PAIRS</button>
+                  </div>
+                  
+                  {/* Font Preview */}
+                  <div style={{ background: fontPreviewBg === 'light' ? '#fafafa' : fontPreviewBg === 'dark' ? '#0a0a0f' : (currentColors[0] || '#3b82f6'), padding: '32px', borderRadius: '12px', marginBottom: '16px', border: `1px solid ${effectiveText}20` }}>
+                    <input type="text" value={fontPreviewHeading} onChange={(e) => setFontPreviewHeading(e.target.value)} style={{ background: 'transparent', border: 'none', width: '100%', color: fontPreviewBg === 'light' ? '#171717' : fontPreviewBg === 'dark' ? '#fafafa' : getTextColor(currentColors[0] || '#3b82f6'), fontSize: '32px', fontWeight: '700', fontFamily: fonts.find(f => f.name === selectedHeadingFont)?.stack || 'sans-serif', marginBottom: '12px', outline: 'none' }} />
+                    <textarea value={fontPreviewSubhead} onChange={(e) => setFontPreviewSubhead(e.target.value)} style={{ background: 'transparent', border: 'none', width: '100%', color: fontPreviewBg === 'light' ? '#171717' : fontPreviewBg === 'dark' ? '#fafafa' : getTextColor(currentColors[0] || '#3b82f6'), fontSize: '14px', fontFamily: fonts.find(f => f.name === selectedBodyFont)?.stack || 'sans-serif', lineHeight: 1.6, outline: 'none', resize: 'none', minHeight: '50px' }} />
+                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${fontPreviewBg === 'light' ? '#00000010' : '#ffffff20'}` }}>
+                      <span style={{ fontSize: '10px', fontFamily: 'monospace', color: fontPreviewBg === 'light' ? '#666' : '#999' }}>{selectedHeadingFont} + {selectedBodyFont}</span>
+                    </div>
+                  </div>
+                  
+                  {/* Preview controls */}
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                    {['light', 'dark', 'color'].map(bg => (
+                      <button key={bg} onClick={() => setFontPreviewBg(bg)} style={{ background: fontPreviewBg === bg ? `${currentTheme.accent}20` : 'transparent', border: `1px solid ${fontPreviewBg === bg ? currentTheme.accent : effectiveText + '20'}`, padding: '6px 12px', borderRadius: '4px', color: fontPreviewBg === bg ? currentTheme.accent : effectiveTextMuted, cursor: 'pointer', fontSize: '10px', textTransform: 'capitalize', fontFamily: 'monospace' }}>{bg}</button>
+                    ))}
+                  </div>
+                  
+                  {/* Suggested pairs */}
+                  <div>
+                    <h4 style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.15em', color: effectiveTextMuted, marginBottom: '12px', fontFamily: 'monospace' }}>{suggestedPairs.length > 0 ? 'Suggested Pairs' : 'Classic Pairs'}</h4>
+                    <div style={{ display: 'grid', gap: '8px' }}>
+                      {(suggestedPairs.length > 0 ? suggestedPairs : classicPairs).map((pair, i) => (
+                        <button key={i} onClick={() => { setSelectedHeadingFont(pair.heading); setSelectedBodyFont(pair.body); }} style={{ background: selectedHeadingFont === pair.heading && selectedBodyFont === pair.body ? `${currentTheme.accent}15` : appBgColor ? `${effectiveText}05` : currentTheme.surface, border: `1px solid ${selectedHeadingFont === pair.heading && selectedBodyFont === pair.body ? currentTheme.accent : (appBgColor ? `${effectiveText}20` : currentTheme.border)}`, borderRadius: '8px', padding: '12px 16px', textAlign: 'left', cursor: 'pointer' }}>
+                          <div style={{ fontSize: '14px', fontWeight: '600', color: effectiveText, marginBottom: '4px', fontFamily: fonts.find(f => f.name === pair.heading)?.stack }}>{pair.heading}</div>
+                          <div style={{ fontSize: '11px', color: effectiveTextMuted, fontFamily: fonts.find(f => f.name === pair.body)?.stack }}>{pair.body}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {activeTab === 'palette' && selectedColor && (
                 <div>
@@ -1205,7 +1612,8 @@ export default function App() {
       <input ref={paletteFileInputRef} type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
       <canvas ref={canvasRef} style={{ display: 'none' }} />
       <canvas ref={exportCanvasRef} style={{ display: 'none' }} />
-      <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&family=Crimson+Pro:wght@300;400;600;700&display=swap" rel="stylesheet" />
+      <canvas ref={smartColorCanvasRef} style={{ display: 'none' }} />
+      <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&family=Crimson+Pro:wght@300;400;600;700&family=Montserrat:wght@300;400;500;600;700&family=Open+Sans:wght@300;400;500;600;700&family=Lato:wght@300;400;700&family=Roboto:wght@300;400;500;700&family=Oswald:wght@300;400;500;600;700&family=Raleway:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Merriweather:wght@300;400;700&family=Lora:wght@400;500;600;700&family=Source+Sans+Pro:wght@300;400;600;700&family=Work+Sans:wght@300;400;500;600;700&family=DM+Sans:wght@400;500;700&family=Quicksand:wght@300;400;500;600;700&family=Nunito:wght@300;400;600;700&family=Cormorant+Garamond:wght@300;400;500;600;700&family=Bebas+Neue&family=Anton&family=Abril+Fatface&display=swap" rel="stylesheet" />
       <style>{`* { box-sizing: border-box; } body { margin: 0; } ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: ${appBgColor ? `${effectiveText}05` : currentTheme.surface}; } ::-webkit-scrollbar-thumb { background: ${appBgColor ? `${effectiveText}20` : currentTheme.border}; border-radius: 3px; }`}</style>
     </div>
   );
